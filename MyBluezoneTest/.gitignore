@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+.env.production
+*.p12
+*.mobileprovision
+GoogleService-Info.plist
+google-services.json
+keystore.properties
+*.jks
+/android/app/debug.keystore
+/ios/build
+/android/build
+/android/app/build

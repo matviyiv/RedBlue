@@ -134,6 +134,46 @@ sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
   --exclude="*.aar"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Generate BLUE_ZONE_MANIFEST.md — gives Claude a map of what was excluded
+# ─────────────────────────────────────────────────────────────────────────────
+MANIFEST="$BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md"
+
+{
+  printf "# Blue Zone Manifest\n"
+  printf "# Generated: %s\n\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+  printf "## Files excluded from src/ (red zone — exist on host, not visible here)\n\n"
+  EXCLUDED_SRC=$(comm -23 \
+    <(find "./src" -type f | sed "s|./src/||" | sort) \
+    <(find "$BLUE_ZONE_ROOT/src" -type f | sed "s|$BLUE_ZONE_ROOT/src/||" | sort) \
+  )
+  if [ -n "$EXCLUDED_SRC" ]; then
+    printf "%s\n" "$EXCLUDED_SRC" | while IFS= read -r f; do
+      printf -- "- src/%s\n" "$f"
+    done
+  else
+    printf "_No src/ files were excluded._\n"
+  fi
+
+  printf "\n## Type contracts available at src/types/\n\n"
+  if [ -d "$BLUE_ZONE_ROOT/src/types" ]; then
+    find "$BLUE_ZONE_ROOT/src/types" -type f -name "*.ts" | sort | \
+      sed "s|$BLUE_ZONE_ROOT/||" | while IFS= read -r f; do
+        printf -- "- %s\n" "$f"
+      done
+  else
+    printf "_src/types/ not found — add TypeScript interface files there._\n"
+  fi
+
+  printf "\n## What these exclusions mean\n\n"
+  printf "The files above contain implementation details (API endpoints, server\n"
+  printf "hostnames, env var reads) that are red zone. Their TypeScript contracts\n"
+  printf "are exposed in src/types/ — use those interfaces when writing or reviewing code.\n"
+} > "$MANIFEST"
+
+echo -e "${GREEN}✓ Manifest written to $MANIFEST${RESET}\n"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 TOTAL=$(find "$BLUE_ZONE_ROOT" -type f | wc -l | tr -d ' ')
@@ -141,7 +181,8 @@ echo -e "${BOLD}─────────────────────�
 echo -e "${GREEN}${BOLD}✅ Blue zone ready at $BLUE_ZONE_ROOT${RESET}"
 echo -e "   Total files: ${BOLD}$TOTAL${RESET}"
 echo -e "   Mounts:"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/src     → /workspace/src"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/ios     → /workspace/ios"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/android → /workspace/android"
+echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/src                    → /workspace/src"
+echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/ios                    → /workspace/ios"
+echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/android                → /workspace/android"
+echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md  → /workspace/BLUE_ZONE_MANIFEST.md"
 echo -e "${BOLD}────────────────────────────────────────${RESET}"

@@ -53,8 +53,44 @@ The following are red zone and do not exist in your workspace:
 - `*.properties` files (keystore.properties, signing.properties)
 - `build/`, `.gradle/` - build artifacts
 
-If you need to understand how data is fetched, reference only
-TypeScript interface/type definitions in `src/types/` instead.
+## API / Service Layer Contracts
+
+The API, service, and HTTP client implementation files are red zone and do not
+exist in your workspace. Their TypeScript interfaces are in `src/types/` — use
+these to write correct code without guessing at endpoint shapes or function signatures.
+
+### Available type files
+
+**`src/types/auth.types.ts`** — Authentication layer
+- Interfaces: `LoginRequest`, `LoginResponse`, `AuthError`, `AuthSession`
+- Contract: `IAuthApi` with `login()`, `logout()`, `refreshSession()`
+- Import: `import type { LoginRequest, IAuthApi } from '../types/auth.types';`
+
+**`src/types/jitsi.types.ts`** — Video conferencing service
+- Interfaces: `JitsiRoomOptions`, `JitsiParticipant`, `JitsiRoomState`
+- Contract: `IJitsiService` with `joinRoom()`, `leaveRoom()`, `toggleAudio()`, `toggleVideo()`
+- Import: `import type { JitsiRoomOptions, IJitsiService } from '../types/jitsi.types';`
+
+**`src/types/http.types.ts`** — HTTP client layer
+- Generic envelopes: `ApiResponse<T>`, `PaginatedResponse<T>`, `ApiErrorResponse`
+- Contract: `HttpClientInstance` describing the pre-configured client API
+- Import: `import type { ApiResponse, ApiErrorResponse } from '../types/http.types';`
+
+**`src/types/index.ts`** — re-exports all of the above for convenience.
+
+### Rules for working with the API layer
+
+- DO use the interfaces in `src/types/` to type props, state, hooks, and test fixtures
+- DO write Jest tests that mock `IAuthApi`, `IJitsiService` using the shapes in `src/types/`
+- DO NOT invent endpoint paths — they are red zone and not accessible here
+- DO NOT import from `../api/`, `../services/`, or `../utils/httpClient` — those files do not exist in your workspace
+- When wiring a component to the API, accept the service as a prop typed against the interface (dependency injection), rather than importing the concrete module
+
+### BLUE_ZONE_MANIFEST.md
+
+`/workspace/BLUE_ZONE_MANIFEST.md` lists every file that was stripped from `src/`
+before this workspace was mounted. Read it to see what exists on the host but is
+not visible here. Do not edit it — it is auto-generated on each run.
 
 ## Code Style
 - TypeScript strict mode

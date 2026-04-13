@@ -6,7 +6,7 @@ set -e
 PROJECT=MyBluezoneTest
 
 # 1. Scaffold RN project structure
-mkdir -p "$PROJECT"/{src/{api,services,utils,components,screens},ios/{"$PROJECT","$PROJECT".xcodeproj},android/{app/src/main,gradle/wrapper}}
+mkdir -p "$PROJECT"/{src/{api,services,utils,components,screens,types},ios/{"$PROJECT","$PROJECT".xcodeproj},android/{app/src/main,gradle/wrapper}}
 
 cd "$PROJECT"
 
@@ -236,7 +236,155 @@ export const HomeScreen: React.FC = () => (
 );
 EOF
 
-# 2. Create realistic RED zone source files
+# 2. Create BLUE zone type contracts (src/types/)
+cat > src/types/auth.types.ts << 'EOF'
+// auth.types.ts — Blue zone contract for the authentication API layer
+// Contains: request/response shapes, session state, error types
+// Does NOT contain: URLs, tokens, implementation details
+// Implementation lives in src/api/auth-api.ts (red zone — not visible in workspace)
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  userId: string;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number; // Unix timestamp (ms)
+}
+
+export type AuthErrorCode =
+  | 'INVALID_CREDENTIALS'
+  | 'ACCOUNT_LOCKED'
+  | 'TOKEN_EXPIRED'
+  | 'NETWORK_ERROR'
+  | 'UNKNOWN';
+
+export interface AuthError {
+  code: AuthErrorCode;
+  message: string;
+}
+
+export interface AuthSession {
+  userId: string;
+  email: string;
+  isAuthenticated: boolean;
+  expiresAt: number;
+}
+
+// Function signature contract — implementation lives in the red zone.
+// Accept as a prop or via context; do not import the concrete module directly.
+export interface IAuthApi {
+  login(request: LoginRequest): Promise<LoginResponse>;
+  logout(): Promise<void>;
+  refreshSession(): Promise<LoginResponse>;
+}
+EOF
+
+cat > src/types/jitsi.types.ts << 'EOF'
+// jitsi.types.ts — Blue zone contract for the video conferencing service layer
+// Contains: room config shapes, participant info, service function signatures
+// Does NOT contain: server hostnames, room URLs, ICE/TURN credentials
+// Implementation lives in src/services/jitsiService.ts (red zone — not visible in workspace)
+
+export interface JitsiRoomOptions {
+  roomName: string;
+  userDisplayName?: string;
+  audioMuted?: boolean;
+  videoMuted?: boolean;
+}
+
+export interface JitsiParticipant {
+  participantId: string;
+  displayName: string;
+  isAudioMuted: boolean;
+  isVideoMuted: boolean;
+}
+
+export interface JitsiRoomState {
+  isConnected: boolean;
+  participants: JitsiParticipant[];
+  localParticipantId: string | null;
+}
+
+// Function signature contract — implementation lives in the red zone.
+// Accept as a prop or via context; do not import the concrete module directly.
+export interface IJitsiService {
+  joinRoom(options: JitsiRoomOptions): Promise<void>;
+  leaveRoom(): Promise<void>;
+  toggleAudio(): void;
+  toggleVideo(): void;
+}
+EOF
+
+cat > src/types/http.types.ts << 'EOF'
+// http.types.ts — Blue zone contract for the HTTP client layer
+// Contains: generic response envelopes, pagination, error shapes
+// Does NOT contain: base URLs, auth headers, axios configuration
+// Implementation lives in src/utils/httpClient.ts (red zone — not visible in workspace)
+
+export interface ApiResponse<T> {
+  data: T;
+  status: number;
+  message?: string;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasNextPage: boolean;
+}
+
+export interface ApiErrorResponse {
+  status: number;
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+// The pre-configured HTTP client instance shape.
+// The real client (with baseURL from env) is in src/utils/httpClient.ts (red zone).
+// Import as: import { http } from '../utils/httpClient';
+export interface HttpClientInstance {
+  get<T>(path: string, params?: Record<string, unknown>): Promise<T>;
+  post<T>(path: string, body: unknown): Promise<T>;
+  put<T>(path: string, body: unknown): Promise<T>;
+  patch<T>(path: string, body: unknown): Promise<T>;
+  delete<T>(path: string): Promise<T>;
+}
+EOF
+
+cat > src/types/index.ts << 'EOF'
+// src/types/index.ts — re-exports all blue zone API contracts
+export type {
+  LoginRequest,
+  LoginResponse,
+  AuthErrorCode,
+  AuthError,
+  AuthSession,
+  IAuthApi,
+} from './auth.types';
+
+export type {
+  JitsiRoomOptions,
+  JitsiParticipant,
+  JitsiRoomState,
+  IJitsiService,
+} from './jitsi.types';
+
+export type {
+  ApiResponse,
+  PaginatedResponse,
+  ApiErrorResponse,
+  HttpClientInstance,
+} from './http.types';
+EOF
+
+# 3. Create realistic RED zone source files
 cat > src/api/auth-api.ts << 'EOF'
 // RED ZONE — endpoint file, should be filtered by prepare-blue-zone.sh
 import axios from 'axios';
@@ -282,6 +430,10 @@ echo "  BLUE zone files:"
 echo "    App.tsx, index.js, package.json, tsconfig.json"
 echo "    src/components/Button.tsx"
 echo "    src/screens/HomeScreen.tsx"
+echo "    src/types/auth.types.ts   (IAuthApi contract)"
+echo "    src/types/jitsi.types.ts  (IJitsiService contract)"
+echo "    src/types/http.types.ts   (ApiResponse, HttpClientInstance)"
+echo "    src/types/index.ts        (re-exports all contracts)"
 echo ""
 echo "  RED zone source files:"
 echo "    src/api/auth-api.ts"

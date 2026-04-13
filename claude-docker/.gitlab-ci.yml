@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# GitLab CI - Claude Code Blue Zone Pipeline
+#
+# Required CI/CD Variables (Settings > CI/CD > Variables):
+#   ANTHROPIC_API_KEY  - Masked, Protected
+#
+# Blue zone: src/, ios/ (source only), android/ (source only)
+# Red zone:  .env.*, infra/, signing keys, build artifacts
+# ─────────────────────────────────────────────────────────────────────────────
+
+variables:
+  DOCKER_BUILDKIT: "1"
+  CLAUDE_IMAGE: "claude-code:${CI_COMMIT_SHORT_SHA}"
+
+stages:
+  - build
+  - validate
+  - review
+
+# ─── Build Claude Code Docker image ──────────────────────────────────────────
+build-claude-image:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker build --platform linux/amd64 --tag $CLAUDE_IMAGE --file Dockerfile .
+    - docker save $CLAUDE_IMAGE | gzip > claude-image.tar.gz
+  artifacts:
+    paths:
+      - claude-image.tar.gz
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# ─── Prepare blue zone (rsync filter) ────────────────────────────────────────
+prepare-blue-zone:
+  stage: validate
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache rsync bash
+  script:
+    - ./scripts/prepare-blue-zone.sh
+  artifacts:
+    # Pass filtered blue zone to review jobs
+    paths:
+      - /tmp/blue-zone/
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# ─── Validate blue zone (secret scan) ────────────────────────────────────────
+validate-blue-zone:
+  stage: validate
+  image: alpine:latest
+  needs: [prepare-blue-zone]
+  before_script:
+    - apk add --no-cache bash grep git
+  script:
+    - ./scripts/validate-blue-zone.sh --strict
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# ─── Claude Code: Security review ────────────────────────────────────────────
+claude-security-review:
+  stage: review
+  image: docker:24
+  services:
+    - docker:24-dind
+  needs: [build-claude-image, validate-blue-zone]
+  script:
+    - docker load < claude-image.tar.gz
+    - |
+      docker run --rm \
+        --network none \
+        --memory 512m \
+        --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+        --env CI=true \
+        --volume /tmp/blue-zone/src:/workspace/src:ro \
+        --volume /tmp/blue-zone/ios:/workspace/ios:ro \
+        --volume /tmp/blue-zone/android:/workspace/android:ro \
+        --volume $(pwd)/package.json:/workspace/package.json:ro \
+        --volume $(pwd)/tsconfig.json:/workspace/tsconfig.json:ro \
+        --volume $(pwd)/.env.example:/workspace/.env.example:ro \
+        --volume $(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro \
+        --workdir /workspace \
+        $CLAUDE_IMAGE \
+          -p "Review all files in /workspace/src, /workspace/ios, and /workspace/android for: security vulnerabilities, hardcoded secrets or credentials, and unsafe API usage. Output as JSON: [{file, severity, description}]" \
+          --allowedTools "Read" \
+          --output-format json \
+        | tee claude-security-report.json
+    - |
+      HIGH=$(cat claude-security-report.json | jq -r '.result' | jq '[.[] | select(.severity=="high")] | length' 2>/dev/null || echo "0")
+      echo "High severity issues: $HIGH"
+      if [ "$HIGH" -gt "0" ]; then
+        echo "Claude Code found $HIGH high severity issue(s)."
+        exit 1
+      fi
+  artifacts:
+    paths:
+      - claude-security-report.json
+    expire_in: 7 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# ─── Claude Code: MR diff review ─────────────────────────────────────────────
+claude-code-review:
+  stage: review
+  image: docker:24
+  services:
+    - docker:24-dind
+  needs: [build-claude-image, validate-blue-zone]
+  script:
+    - apk add --no-cache git
+    - |
+      CHANGED=$(git diff --name-only origin/$CI_DEFAULT_BRANCH...HEAD \
+        -- src/ ios/ android/ | tr '\n' ' ')
+      echo "Changed blue zone files: $CHANGED"
+    - |
+      docker run --rm \
+        --network none \
+        --memory 512m \
+        --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+        --env CI=true \
+        --volume /tmp/blue-zone/src:/workspace/src:ro \
+        --volume /tmp/blue-zone/ios:/workspace/ios:ro \
+        --volume /tmp/blue-zone/android:/workspace/android:ro \
+        --volume $(pwd)/package.json:/workspace/package.json:ro \
+        --volume $(pwd)/tsconfig.json:/workspace/tsconfig.json:ro \
+        --volume $(pwd)/.env.example:/workspace/.env.example:ro \
+        --volume $(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro \
+        --workdir /workspace \
+        $CLAUDE_IMAGE \
+          -p "Review these changed files for bugs, type errors, and React Native / Swift / Kotlin best practice violations: $CHANGED. Be concise and actionable." \
+          --allowedTools "Read" \
+          --output-format json \
+        | tee claude-review-report.json
+  artifacts:
+    paths:
+      - claude-review-report.json
+    expire_in: 7 days
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'

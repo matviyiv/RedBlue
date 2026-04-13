@@ -1,0 +1,2 @@
+// Stub Xcode project — replace with real generated project
+{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {}; }

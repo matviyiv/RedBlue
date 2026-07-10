@@ -1,0 +1,3 @@
+# Domains the Claude Code container may reach (extended regex, one per line).
+# Everything else is denied by FilterDefaultDeny in tinyproxy.conf.
+^api\.anthropic\.com$

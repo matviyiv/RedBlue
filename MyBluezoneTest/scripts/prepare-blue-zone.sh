@@ -16,7 +16,9 @@ RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
 
-BLUE_ZONE_ROOT="/tmp/blue-zone"
+# Overridable so CI can stage the blue zone inside the project dir
+# (GitLab artifacts must live under $CI_PROJECT_DIR).
+BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone}"
 
 echo -e "${BOLD}${CYAN}🔵 Preparing Blue Zone...${RESET}\n"
 

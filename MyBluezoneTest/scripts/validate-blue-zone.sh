@@ -19,7 +19,7 @@ RESET="\033[0m"
 STRICT=false
 VIOLATIONS=0
 WARNINGS=0
-BLUE_ZONE_ROOT="/tmp/blue-zone"
+BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone}"
 
 [[ "${1:-}" == "--strict" ]] && STRICT=true
 
@@ -158,12 +158,18 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 echo -e "\n${BOLD}[6] .env.example has no real values...${RESET}"
 
-REAL_VALUES=$(grep -vE '^\s*#|^\s*$' .env.example 2>/dev/null | grep -E '=.+' || true)
-if [ -n "$REAL_VALUES" ]; then
-  warn ".env.example has non-empty values - verify these are safe placeholders"
-  $STRICT && fail ".env.example has real values (strict mode)"
+if [ ! -f ".env.example" ]; then
+  # docker-compose mounts ./.env.example into the container; if the file is
+  # missing Docker silently creates a directory in its place, so fail here.
+  fail ".env.example not found in project root - create it (names only, no values)"
 else
-  pass ".env.example values are all empty"
+  REAL_VALUES=$(grep -vE '^\s*#|^\s*$' .env.example | grep -E '=.+' || true)
+  if [ -n "$REAL_VALUES" ]; then
+    warn ".env.example has non-empty values - verify these are safe placeholders"
+    $STRICT && fail ".env.example has real values (strict mode)"
+  else
+    pass ".env.example values are all empty"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

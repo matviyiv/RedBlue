@@ -45,7 +45,9 @@ android/keystore.props ✗
 A shell script (`prepare-blue-zone.sh`) uses `rsync` to copy only the blue zone
 into a staging directory. A second script (`validate-blue-zone.sh`) scans it for
 any leaked secrets before Docker ever starts. Claude Code then runs in a container
-that mounts the staging directory **read-only** with `network_mode: none`.
+that mounts the staging directory **read-only** on an internal Docker network
+whose only route to the internet is an allowlist proxy permitting
+`api.anthropic.com:443` — the one endpoint Claude Code needs to function.
 
 ---
 
@@ -99,8 +101,13 @@ RedBlue/
     │   ├── api/                    # RED — stripped by prepare-blue-zone.sh
     │   ├── services/               # RED — stripped
     │   └── utils/httpClient.ts     # RED — stripped
+    ├── proxy/                      # Egress allowlist proxy (api.anthropic.com only)
+    │   ├── Dockerfile              # alpine + tinyproxy
+    │   ├── tinyproxy.conf          # FilterDefaultDeny, CONNECT :443 only
+    │   └── filter                  # allowed domains (one regex per line)
+    ├── .env.example                # Blue zone env schema — names only, no values
     ├── Dockerfile                  # node:22-alpine + Claude Code CLI, non-root user
-    ├── docker-compose.yml          # Blue zone mounts, network_mode: none, 512 MB cap
+    ├── docker-compose.yml          # Blue zone mounts, internal net + egress proxy, 512 MB cap
     └── .gitlab-ci.yml              # Full pipeline: build → validate → review
 ```
 
@@ -127,7 +134,8 @@ RedBlue/
      /tmp/blue-zone/ios     → /workspace/ios     (read-only)
      /tmp/blue-zone/android → /workspace/android (read-only)
      BLUE_ZONE_MANIFEST.md  → /workspace/        (read-only)
-   network_mode: none  ← no outbound calls from inside the container
+   network: internal-only  ← sole route out is the egress proxy,
+                             which allows api.anthropic.com:443 and denies all else
    runs: claude -p "..." --allowedTools Read
 ```
 
@@ -245,8 +253,8 @@ Required CI/CD variable: `ANTHROPIC_API_KEY` (masked + protected).
 |----------|------------------|
 | Red zone files never reach Claude | `rsync` exclusions before Docker starts |
 | Blue zone is verified clean | `validate-blue-zone.sh` exits 1 on any violation |
-| Container can't phone home | `network_mode: none` in docker-compose |
-| Filesystem is read-only | All volume mounts use `:ro` |
+| Egress limited to the Anthropic API | Internal Docker network; only route out is an allowlist proxy (`proxy/`) permitting `api.anthropic.com:443` |
+| Workspace is read-only | All blue zone volume mounts use `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 

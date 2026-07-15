@@ -22,7 +22,7 @@ echo -e "${BOLD}${CYAN}🔵 Preparing Blue Zone...${RESET}\n"
 
 # ── Wipe previous run ─────────────────────────────────────────────────────────
 rm -rf "$BLUE_ZONE_ROOT"
-mkdir -p "$BLUE_ZONE_ROOT"/{src,ios,android}
+mkdir -p "$BLUE_ZONE_ROOT"/{src,ios,android,__tests__}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper: rsync a folder with exclusions and print audit diff
@@ -134,6 +134,14 @@ sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
   --exclude="*.aar"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 🔵 __tests__/ — Jest test suites. No red zone here, but keep secrets and
+# installed deps out of the staged copy just in case.
+# ─────────────────────────────────────────────────────────────────────────────
+sync_zone "./__tests__" "$BLUE_ZONE_ROOT/__tests__" "__tests__" \
+  --exclude=".env*"           \
+  --exclude="node_modules/"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Generate BLUE_ZONE_MANIFEST.md — gives Claude a map of what was excluded
 # ─────────────────────────────────────────────────────────────────────────────
 MANIFEST="$BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md"
@@ -185,7 +193,7 @@ chmod -R a+rwX "$BLUE_ZONE_ROOT"
 # Lives at the blue zone root, which is NOT mounted into the container —
 # only src/, ios/, android/ and the manifest are.
 # ─────────────────────────────────────────────────────────────────────────────
-(cd "$BLUE_ZONE_ROOT" && find src ios android -type f 2>/dev/null | sort > .blue-zone-snapshot)
+(cd "$BLUE_ZONE_ROOT" && find src ios android __tests__ -type f 2>/dev/null | sort > .blue-zone-snapshot)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
@@ -198,5 +206,6 @@ echo -e "   Mounts:"
 echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/src                    → /workspace/src"
 echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/ios                    → /workspace/ios"
 echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/android                → /workspace/android"
+echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/__tests__              → /workspace/__tests__"
 echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md  → /workspace/BLUE_ZONE_MANIFEST.md"
 echo -e "${BOLD}────────────────────────────────────────${RESET}"

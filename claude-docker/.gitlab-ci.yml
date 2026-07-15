@@ -1,8 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # GitLab CI - Claude Code Blue Zone Pipeline
 #
-# Required CI/CD Variables (Settings > CI/CD > Variables):
-#   ANTHROPIC_API_KEY  - Masked, Protected
+# Required CI/CD Variables (Settings > CI/CD > Variables) - set ONE of:
+#   ANTHROPIC_API_KEY       - Anthropic API key (Masked, Protected)
+#   CLAUDE_CODE_OAUTH_TOKEN - `claude setup-token` output, Pro/Max
+#                             subscription (Masked, Protected)
 #
 # Blue zone: src/, ios/ (source only), android/ (source only)
 # Red zone:  .env.*, infra/, signing keys, build artifacts
@@ -78,6 +80,7 @@ claude-security-review:
         --network none \
         --memory 512m \
         --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+        --env CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
         --env CI=true \
         --volume /tmp/blue-zone/src:/workspace/src:ro \
         --volume /tmp/blue-zone/ios:/workspace/ios:ro \
@@ -124,6 +127,7 @@ claude-code-review:
         --network none \
         --memory 512m \
         --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+        --env CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
         --env CI=true \
         --volume /tmp/blue-zone/src:/workspace/src:ro \
         --volume /tmp/blue-zone/ios:/workspace/ios:ro \

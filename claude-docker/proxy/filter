@@ -7,3 +7,9 @@
 # needs another host — keep it as tight as possible.
 (^|\.)anthropic\.com$
 (^|\.)claude\.ai$
+
+# GitHub — web/API (github.com, api.github.com, codeload.github.com) and file
+# content / release assets (raw.githubusercontent.com, objects.github...).
+# Public hosts only; this does not grant any LAN access.
+(^|\.)github\.com$
+(^|\.)githubusercontent\.com$

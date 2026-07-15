@@ -45,7 +45,10 @@ android/keystore.props ✗
 A shell script (`prepare-blue-zone.sh`) uses `rsync` to copy only the blue zone
 into a staging directory. A second script (`validate-blue-zone.sh`) scans it for
 any leaked secrets before Docker ever starts. Claude Code then runs in a container
-that mounts the staging directory **read-only** with `network_mode: none`.
+that mounts the staging directory **writable** with `network_mode: none` — Claude
+can create and edit files, but writes land in the staging copy at `/tmp/blue-zone/`,
+never directly in your repo. When the session ends, `sync-back.sh` automatically
+copies the changes into your repo, refusing to touch red-zone paths.
 
 ---
 
@@ -123,12 +126,19 @@ RedBlue/
 
 3. docker compose run claude-code
    mounts:
-     /tmp/blue-zone/src     → /workspace/src     (read-only)
-     /tmp/blue-zone/ios     → /workspace/ios     (read-only)
-     /tmp/blue-zone/android → /workspace/android (read-only)
+     /tmp/blue-zone/src     → /workspace/src     (writable)
+     /tmp/blue-zone/ios     → /workspace/ios     (writable)
+     /tmp/blue-zone/android → /workspace/android (writable)
      BLUE_ZONE_MANIFEST.md  → /workspace/        (read-only)
    network_mode: none  ← no outbound calls from inside the container
-   runs: claude -p "..." --allowedTools Read
+   runs: claude -p "..." --allowedTools Read,Write,Edit
+
+4. sync-back.sh  (automatic when the session ends)
+   copies Claude's changes from /tmp/blue-zone back into the repo:
+     • updates only files Claude was allowed to see
+     • blocks new files that collide with stripped red-zone paths
+     • reports deletions but never applies them
+   disable with SYNC_BACK=0; preview with ./scripts/sync-back.sh --dry-run
 ```
 
 ---
@@ -182,7 +192,11 @@ export ANTHROPIC_API_KEY=sk-ant-...           # a) API key
 export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # b) `claude setup-token` (Pro/Max)
 ./scripts/start-cli.sh                        # c) no key at all — log in via
                                               #    /login once; credentials persist
-                                              #    in the claude-config volume
+                                              #    in the claude-home volume
+
+# Claude state (login, onboarding, session history) persists between runs
+# in the claude-home Docker volume. Wipe it to start fresh:
+./scripts/start-cli.sh --clear
 
 # Headless prompt (CI-friendly)
 ./scripts/run-headless.sh "Review src/ for TypeScript errors and suggest fixes"
@@ -252,7 +266,7 @@ Claude Pro/Max subscription — no API key needed).
 | Red zone files never reach Claude | `rsync` exclusions before Docker starts |
 | Blue zone is verified clean | `validate-blue-zone.sh` exits 1 on any violation |
 | Container can't phone home | `network_mode: none` in docker-compose |
-| Filesystem is read-only | All volume mounts use `:ro` |
+| Repo is never written directly | Writable mounts point at the `/tmp/blue-zone` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 

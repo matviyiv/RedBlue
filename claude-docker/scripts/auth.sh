@@ -7,7 +7,7 @@
 #   2. oauth-token      CLAUDE_CODE_OAUTH_TOKEN (sk-ant-oat...), a long-lived
 #                       token created with `claude setup-token` from a
 #                       Claude Pro/Max subscription — no API key needed
-#   3. persisted-login  OAuth credentials saved in the claude-config Docker
+#   3. persisted-login  OAuth credentials saved in the claude-home Docker
 #                       volume by a previous interactive /login session
 #   4. none             nothing found — interactive sessions can still start
 #                       and log in via /login; headless runs must abort
@@ -18,7 +18,7 @@
 #                   (expand with: ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"})
 # ─────────────────────────────────────────────────────────────────────────────
 
-# True if a previous /login left credentials in the claude-config volume.
+# True if a previous /login left credentials in the claude-home volume.
 # Runs a throwaway container; any failure (e.g. image not built yet) counts
 # as "no persisted login".
 has_persisted_login() {
@@ -47,5 +47,5 @@ print_auth_help() {
   echo "  2. Subscription token run 'claude setup-token' on the host, then:"
   echo "                        export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat..."
   echo "  3. Interactive login  ./scripts/start-cli.sh and run /login once —"
-  echo "                        credentials persist in the claude-config volume"
+  echo "                        credentials persist in the claude-home volume"
 }

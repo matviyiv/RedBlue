@@ -2,7 +2,9 @@ services:
   # ─────────────────────────────────────────────────────────────
   # Headless Claude Code - CI / automated mode
   #
-  # Blue zone mounts (read-only, pre-filtered by prepare-blue-zone.sh):
+  # Blue zone mounts (writable, pre-filtered by prepare-blue-zone.sh;
+  # changes land in /tmp/blue-zone on the host — copy back what you keep,
+  # the next prepare run wipes it):
   #     /tmp/blue-zone/src     -> /workspace/src
   #     /tmp/blue-zone/ios     -> /workspace/ios
   #     /tmp/blue-zone/android -> /workspace/android
@@ -28,17 +30,17 @@ services:
       #   ANTHROPIC_API_KEY       - Anthropic API key
       #   CLAUDE_CODE_OAUTH_TOKEN - `claude setup-token` (Pro/Max subscription)
       #   neither                 - /login inside the container, persisted in
-      #                             the claude-config volume
+      #                             the claude-home volume
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - CI=true
       - GITLAB_CI=${GITLAB_CI:-false}
 
     volumes:
-      # Blue zone - pre-filtered copies (read-only)
-      - /tmp/blue-zone/src:/workspace/src:ro
-      - /tmp/blue-zone/ios:/workspace/ios:ro
-      - /tmp/blue-zone/android:/workspace/android:ro
+      # Blue zone - pre-filtered copies (writable so Claude can create/edit files)
+      - /tmp/blue-zone/src:/workspace/src
+      - /tmp/blue-zone/ios:/workspace/ios
+      - /tmp/blue-zone/android:/workspace/android
 
       # Config files
       - ./package.json:/workspace/package.json:ro
@@ -46,8 +48,11 @@ services:
       - ./.env.example:/workspace/.env.example:ro
       - ./.claude/CLAUDE.md:/workspace/CLAUDE.md:ro
 
-      # Persisted Claude auth (writable) — keeps /login credentials across runs
-      - claude-config:/home/claude/.claude
+      # Persisted Claude state (writable) — the WHOLE home dir, because
+      # Claude Code keeps onboarding/session state in ~/.claude.json (not
+      # inside ~/.claude/). Keeps login, settings, and session history
+      # across runs. Clear with: ./scripts/start-cli.sh --clear
+      - claude-home:/home/claude
 
     working_dir: /workspace
     network_mode: none
@@ -71,5 +76,7 @@ services:
     command: []
 
 volumes:
-  # Stores OAuth credentials from /login so key-less auth survives restarts
-  claude-config:
+  # Persists /login credentials, onboarding answers (~/.claude.json), and
+  # session history so nothing is asked twice. Remove to start fresh:
+  # ./scripts/start-cli.sh --clear   (or: docker compose down -v)
+  claude-home:

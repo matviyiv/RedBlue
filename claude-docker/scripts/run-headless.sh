@@ -53,8 +53,14 @@ docker compose run --rm \
   ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \
   claude-code \
     -p "$PROMPT" \
-    --allowedTools "Read" \
+    --allowedTools "Read,Write,Edit" \
     --no-update-check \
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+
+# Sync any files Claude wrote back into the repo. Set SYNC_BACK=0 to disable.
+if [ "${SYNC_BACK:-1}" != "0" ]; then
+  echo ""
+  ./scripts/sync-back.sh
+fi
 
 echo -e "\n${GREEN}Done${RESET}"

@@ -54,7 +54,7 @@ else
     echo    "  • Claude Pro/Max subscription: run 'claude setup-token' and"
     echo    "    export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat..."
     echo    "  • Or just run ./scripts/start-cli.sh and log in with /login —"
-    echo    "    credentials persist in the claude-config Docker volume"
+    echo    "    credentials persist in the claude-home Docker volume"
   fi
 fi
 

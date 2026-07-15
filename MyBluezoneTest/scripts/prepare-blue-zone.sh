@@ -174,6 +174,20 @@ MANIFEST="$BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md"
 echo -e "${GREEN}✓ Manifest written to $MANIFEST${RESET}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Make the blue zone writable by the container's non-root user
+# (container uid differs from host uid, so group/other need rw on everything)
+# ─────────────────────────────────────────────────────────────────────────────
+chmod -R a+rwX "$BLUE_ZONE_ROOT"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Snapshot of blue zone contents at prepare time.
+# sync-back.sh uses this to tell Claude's changes apart from red-zone files.
+# Lives at the blue zone root, which is NOT mounted into the container —
+# only src/, ios/, android/ and the manifest are.
+# ─────────────────────────────────────────────────────────────────────────────
+(cd "$BLUE_ZONE_ROOT" && find src ios android -type f 2>/dev/null | sort > .blue-zone-snapshot)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 TOTAL=$(find "$BLUE_ZONE_ROOT" -type f | wc -l | tr -d ' ')

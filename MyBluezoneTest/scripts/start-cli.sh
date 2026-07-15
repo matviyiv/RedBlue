@@ -15,11 +15,23 @@ RESET="\033[0m"
 
 echo -e "${BOLD}${CYAN}Claude Code - Interactive CLI (Blue Zone)${RESET}\n"
 
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo -e "${RED}ANTHROPIC_API_KEY is not set.${RESET}"
-  echo    "  Run: export ANTHROPIC_API_KEY=sk-ant-..."
-  exit 1
-fi
+# ── Resolve authentication (API key optional) ────────────────────────────────
+source "$(dirname "$0")/auth.sh"
+resolve_auth
+
+case "$AUTH_MODE" in
+  api-key)
+    echo -e "${GREEN}Auth: ANTHROPIC_API_KEY${RESET}" ;;
+  oauth-token)
+    echo -e "${GREEN}Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription)${RESET}" ;;
+  persisted-login)
+    echo -e "${GREEN}Auth: persisted login from claude-config volume${RESET}" ;;
+  none)
+    echo -e "${YELLOW}No ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN found.${RESET}"
+    echo -e "${YELLOW}You'll be prompted to log in with your Claude account inside the${RESET}"
+    echo -e "${YELLOW}session (run /login). Credentials persist in the claude-config${RESET}"
+    echo -e "${YELLOW}Docker volume, so this is only needed once.${RESET}" ;;
+esac
 
 # ── Prepare and validate blue zone ───────────────────────────────────────────
 echo -e "${BOLD}Step 1: Preparing blue zone...${RESET}"
@@ -45,5 +57,5 @@ echo ""
 echo -e "${YELLOW}Starting Claude Code session... (Ctrl+C to exit)${RESET}\n"
 
 docker compose run --rm \
-  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \
   claude-cli

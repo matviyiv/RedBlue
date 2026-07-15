@@ -26,12 +26,18 @@ if [ -z "$PROMPT" ]; then
   exit 1
 fi
 
-if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-  echo -e "${RED}ANTHROPIC_API_KEY is not set.${RESET}"
+# ── Resolve authentication (API key optional) ────────────────────────────────
+source "$(dirname "$0")/auth.sh"
+resolve_auth
+
+if [ "$AUTH_MODE" = "none" ]; then
+  echo -e "${RED}No authentication found for headless run.${RESET}"
+  print_auth_help
   exit 1
 fi
 
 echo -e "${BOLD}${CYAN}Claude Code - Headless Run${RESET}"
+echo -e "Auth: ${BOLD}${AUTH_MODE}${RESET}"
 echo -e "Prompt: ${BOLD}${PROMPT}${RESET}\n"
 
 # ── Prepare and validate blue zone ───────────────────────────────────────────
@@ -44,11 +50,11 @@ echo -e "${BOLD}[2/3] Validating blue zone...${RESET}"
 echo -e "\n${BOLD}[3/3] Running Claude Code...${RESET}\n"
 
 docker compose run --rm \
-  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \
   claude-code \
     -p "$PROMPT" \
     --allowedTools "Read" \
     --no-update-check \
-    "${EXTRA_ARGS[@]}"
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 
 echo -e "\n${GREEN}Done${RESET}"

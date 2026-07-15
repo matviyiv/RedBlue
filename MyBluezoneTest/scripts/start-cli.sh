@@ -65,11 +65,22 @@ echo ""
 
 echo -e "${YELLOW}Starting Claude Code session... (Ctrl+C to exit)${RESET}\n"
 
-# Sync Claude's changes back into the repo when the session ends, however it
-# ends (exit, Ctrl+C, error). Set SYNC_BACK=0 to disable.
-if [ "${SYNC_BACK:-1}" != "0" ]; then
-  trap 'echo ""; ./scripts/sync-back.sh' EXIT
-fi
+# When the session ends, however it ends (exit, Ctrl+C, error):
+#   1. Sync Claude's changes back into the repo (set SYNC_BACK=0 to disable).
+#   2. Tear down the egress proxy that `docker compose run` started as a
+#      dependency, so no proxy container (which can reach the internet) is
+#      left running after the session.
+cleanup() {
+  echo ""
+  [ "${SYNC_BACK:-1}" != "0" ] && ./scripts/sync-back.sh
+  docker compose rm -sf egress-proxy >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# claude-cli is attached only to the internal `egress` network; its sole route
+# out is the egress-proxy allowlist (Anthropic domains). It cannot reach your
+# LAN or any other host. See docker-compose.yml + proxy/ for details.
+echo -e "${GREEN}Network: isolated — egress restricted to Anthropic via proxy (no LAN access).${RESET}\n"
 
 docker compose run --rm \
   ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \

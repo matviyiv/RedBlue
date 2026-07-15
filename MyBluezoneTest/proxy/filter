@@ -1,0 +1,15 @@
+# Egress allowlist (POSIX extended regex, one host pattern per line).
+# Only destinations matching a line here are reachable; everything else — every
+# LAN address included — is denied by `FilterDefaultDeny Yes`.
+#
+# Anthropic-owned domains cover the API, the login/OAuth token exchange, and
+# feature-flag/telemetry (statsig.anthropic.com). Add a line if your workflow
+# needs another host — keep it as tight as possible.
+(^|\.)anthropic\.com$
+(^|\.)claude\.ai$
+
+# GitHub — web/API (github.com, api.github.com, codeload.github.com) and file
+# content / release assets (raw.githubusercontent.com, objects.github...).
+# Public hosts only; this does not grant any LAN access.
+(^|\.)github\.com$
+(^|\.)githubusercontent\.com$

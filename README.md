@@ -102,8 +102,12 @@ RedBlue/
     │   ├── api/                    # RED — stripped by prepare-blue-zone.sh
     │   ├── services/               # RED — stripped
     │   └── utils/httpClient.ts     # RED — stripped
+    ├── proxy/                      # Egress allowlist proxy (interactive sessions)
+    │   ├── Dockerfile              #   tinyproxy on alpine
+    │   ├── tinyproxy.conf          #   default-deny forward proxy
+    │   └── filter                  #   allowlist: Anthropic + GitHub domains
     ├── Dockerfile                  # node:22-alpine + Claude Code CLI, non-root user
-    ├── docker-compose.yml          # Blue zone mounts, network_mode: none, 512 MB cap
+    ├── docker-compose.yml          # Blue zone mounts, network isolation, 512 MB cap
     └── .gitlab-ci.yml              # Full pipeline: build → validate → review
 ```
 
@@ -130,14 +134,17 @@ RedBlue/
      /tmp/blue-zone/ios     → /workspace/ios     (writable)
      /tmp/blue-zone/android → /workspace/android (writable)
      BLUE_ZONE_MANIFEST.md  → /workspace/        (read-only)
-   network_mode: none  ← no outbound calls from inside the container
+   network isolation:
+     • headless (claude-code):  network_mode: none — no network at all
+     • interactive (claude-cli): internal network + egress-proxy allowlist —
+       can reach Anthropic (API/auth) and GitHub, but NOT your LAN
    runs: claude -p "..." --allowedTools Read,Write,Edit
 
 4. sync-back.sh  (automatic when the session ends)
    copies Claude's changes from /tmp/blue-zone back into the repo:
      • updates only files Claude was allowed to see
      • blocks new files that collide with stripped red-zone paths
-     • reports deletions but never applies them
+     • deletes files Claude removed (only ones that were in the blue zone)
    disable with SYNC_BACK=0; preview with ./scripts/sync-back.sh --dry-run
 ```
 
@@ -150,6 +157,7 @@ RedBlue/
 ```bash
 cp -r MyBluezoneTest/.claude       your-project/
 cp -r MyBluezoneTest/scripts/      your-project/
+cp -r MyBluezoneTest/proxy/        your-project/   # egress allowlist proxy
 cp    MyBluezoneTest/Dockerfile    your-project/
 cp    MyBluezoneTest/docker-compose.yml your-project/
 ```
@@ -265,7 +273,8 @@ Claude Pro/Max subscription — no API key needed).
 |----------|------------------|
 | Red zone files never reach Claude | `rsync` exclusions before Docker starts |
 | Blue zone is verified clean | `validate-blue-zone.sh` exits 1 on any violation |
-| Container can't phone home | `network_mode: none` in docker-compose |
+| Container can't phone home | Headless: `network_mode: none`. Interactive: attached only to an `internal` Docker network whose sole exit is an egress proxy that allowlists only Anthropic + GitHub domains — no LAN or arbitrary-internet access |
+| Interactive session can't reach your LAN | `claude-cli` has no route off the `internal` network; the dual-homed `egress-proxy` denies every destination except the allowlisted public hosts in `proxy/filter` (Anthropic, GitHub) |
 | Repo is never written directly | Writable mounts point at the `/tmp/blue-zone` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |

@@ -29,6 +29,27 @@ You have access to three directories:
 - Reference internal IP addresses, hostnames, or API endpoints
 - Ask for actual secret values - use `.env.example` as schema reference only
 - Attempt to read files outside `/workspace`
+- Run `git` commands (or any VCS command) — `/workspace` is NOT a git repository
+
+## File operations — use the file system, not git
+
+`/workspace` is a filtered staging copy of the repo, **not a git checkout**.
+There is no `.git` directory here, so git commands will fail or behave
+unexpectedly. Never use `git` to inspect, stage, move, or remove files.
+
+Use plain file system commands (or the Read/Write/Edit tools) instead:
+
+| Goal | Use this | Not this |
+|------|----------|----------|
+| Delete a file | `rm path/to/file.ts` | `git rm ...` |
+| Rename / move a file | `mv old.ts new.ts` | `git mv ...` |
+| Create a directory | `mkdir -p dir/` | — |
+| See what changed | Re-read the files | `git status` / `git diff` |
+
+When you delete a file with `rm`, that deletion is carried back into the real
+repository by `sync-back.sh` after the session ends — so deleting is a real,
+propagated action. Deleting a file you were only meant to edit will remove it
+from the repo, so delete deliberately.
 
 ## Intentionally excluded files (do NOT ask for these)
 The following are red zone and do not exist in your workspace:

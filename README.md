@@ -137,7 +137,7 @@ RedBlue/
    copies Claude's changes from /tmp/blue-zone back into the repo:
      • updates only files Claude was allowed to see
      • blocks new files that collide with stripped red-zone paths
-     • reports deletions but never applies them
+     • deletes files Claude removed (only ones that were in the blue zone)
    disable with SYNC_BACK=0; preview with ./scripts/sync-back.sh --dry-run
 ```
 

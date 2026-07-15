@@ -19,7 +19,9 @@ Sync-back safety rules (enforced via a snapshot taken at prepare time):
 - Only files that were visible to Claude get updated in place.
 - A new file whose path collides with a stripped **red-zone** file is
   **blocked** — it will never overwrite the real one; you get a warning instead.
-- Deletions are reported but never applied automatically.
+- Files Claude removed are deleted from the repo too, but only if they were in
+  the blue zone at prepare time — red-zone paths are never in the snapshot, so
+  they can never be deleted by sync-back.
 
 ## Blue Zone Contents
 

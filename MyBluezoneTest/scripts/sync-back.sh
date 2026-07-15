@@ -13,8 +13,10 @@
 #   • A NEW file is only added if the path does not already exist in the
 #     repo. If it does, it's a red-zone file that was deliberately stripped;
 #     overwriting it is refused and a warning is printed.
-#   • Deletions are NEVER propagated automatically — they are reported so
-#     you can delete by hand if intended.
+#   • A file is DELETED from the repo only if it was in the blue zone at
+#     prepare time (recorded in the snapshot) and Claude removed it during
+#     the session. Red-zone files were never in the snapshot, so they can
+#     never be deleted by sync-back.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -86,11 +88,17 @@ while IFS= read -r -d '' f; do
 done < <(find "$BLUE_ZONE_ROOT/src" "$BLUE_ZONE_ROOT/ios" "$BLUE_ZONE_ROOT/android" \
            -type f -print0 2>/dev/null)
 
-# ── Deletions (report only, never auto-applied) ───────────────────────────────
+# ── Deletions ─────────────────────────────────────────────────────────────────
+# A snapshotted file (blue zone at prepare time) that Claude removed during the
+# session is deleted from the repo too. Only files Claude was allowed to see can
+# reach this branch, so red-zone paths are never touched.
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   if [ ! -f "$BLUE_ZONE_ROOT/$rel" ] && [ -f "./$rel" ]; then
-    echo -e "  ${YELLOW}- deleted in blue zone (kept in repo):${RESET} $rel"
+    echo -e "  ${RED}- deleted${RESET}  $rel"
+    if [ "$DRY_RUN" = 0 ]; then
+      rm -f "./$rel"
+    fi
     DELETED=$((DELETED + 1))
   fi
 done < "$SNAPSHOT"
@@ -101,14 +109,14 @@ if [ $((UPDATED + ADDED + BLOCKED + DELETED)) -eq 0 ]; then
 else
   echo -e "${BOLD}────────────────────────────────────────${RESET}"
   echo -e "  updated: ${BOLD}$UPDATED${RESET}  added: ${BOLD}$ADDED${RESET}" \
-          " blocked: ${BOLD}$BLOCKED${RESET}  deletions reported: ${BOLD}$DELETED${RESET}"
+          " blocked: ${BOLD}$BLOCKED${RESET}  deleted: ${BOLD}$DELETED${RESET}"
   if [ "$BLOCKED" -gt 0 ]; then
     echo -e "  ${RED}Blocked files collide with red-zone paths — review them manually"
     echo -e "  in $BLUE_ZONE_ROOT before deciding what to do.${RESET}"
   fi
   if [ "$DELETED" -gt 0 ]; then
-    echo -e "  ${YELLOW}Deletions are never auto-applied — remove those files by hand"
-    echo -e "  if the deletion was intended.${RESET}"
+    echo -e "  ${YELLOW}Deleted files were in the blue zone and removed by Claude."
+    echo -e "  Review the diff before committing if you want to keep any of them.${RESET}"
   fi
   echo -e "${BOLD}────────────────────────────────────────${RESET}"
 fi

@@ -78,9 +78,13 @@ cleanup() {
 trap cleanup EXIT
 
 # claude-cli is attached only to the internal `egress` network; its sole route
-# out is the egress-proxy allowlist (Anthropic domains). It cannot reach your
-# LAN or any other host. See docker-compose.yml + proxy/ for details.
-echo -e "${GREEN}Network: isolated — egress restricted to Anthropic via proxy (no LAN access).${RESET}\n"
+# out is the egress-proxy allowlist. It cannot reach your LAN or any other host.
+# See docker-compose.yml + proxy/ for details.
+echo -e "${GREEN}Network: isolated — egress restricted to the proxy allowlist (no LAN access).${RESET}\n"
+
+# Recreate the proxy from the current proxy/filter + proxy/tinyproxy.conf so any
+# allowlist edits take effect immediately (the config is mounted, not baked in).
+docker compose up -d --force-recreate egress-proxy
 
 docker compose run --rm \
   ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \

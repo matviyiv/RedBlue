@@ -113,6 +113,11 @@ services:
       context: ./proxy
       dockerfile: Dockerfile
     image: claude-egress-proxy:latest
+    # Mount the config over the image's baked-in copy so editing the allowlist
+    # takes effect on the next session — no image rebuild required.
+    volumes:
+      - ./proxy/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf:ro
+      - ./proxy/filter:/etc/tinyproxy/filter:ro
     networks:
       - egress
       - upstream

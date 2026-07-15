@@ -13,9 +13,10 @@ RUN npm install -g @anthropic-ai/claude-code
 # Create non-root user for security
 RUN addgroup -S claude && adduser -S claude -G claude
 
-# Config dir must exist and be owned by claude BEFORE the claude-config
-# volume is first mounted, so persisted /login credentials are writable
-RUN mkdir -p /home/claude/.claude && chown -R claude:claude /home/claude/.claude
+# The claude-home volume seeds from the image's /home/claude on first use;
+# make sure the config dir exists and everything is owned by claude so
+# persisted state (/login credentials, ~/.claude.json) is writable
+RUN mkdir -p /home/claude/.claude && chown -R claude:claude /home/claude
 
 # Working directory — blue zone will be mounted here.
 # Owned by claude so files can be created at the workspace root too.

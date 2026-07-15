@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # start-cli.sh — Start interactive Claude Code session (blue zone only)
-# Usage: ./scripts/start-cli.sh
+# Usage: ./scripts/start-cli.sh            start a session (state persists)
+#        ./scripts/start-cli.sh --clear    wipe persisted Claude state
+#                                          (login, onboarding, session history)
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -12,6 +14,13 @@ YELLOW="\033[0;33m"
 RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
+
+if [ "${1:-}" = "--clear" ]; then
+  echo -e "${BOLD}Clearing persisted Claude state (login, onboarding, sessions)...${RESET}"
+  docker compose down --volumes --remove-orphans
+  echo -e "${GREEN}Cleared. The next session will start fresh.${RESET}"
+  exit 0
+fi
 
 echo -e "${BOLD}${CYAN}Claude Code - Interactive CLI (Blue Zone)${RESET}\n"
 
@@ -25,11 +34,11 @@ case "$AUTH_MODE" in
   oauth-token)
     echo -e "${GREEN}Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription)${RESET}" ;;
   persisted-login)
-    echo -e "${GREEN}Auth: persisted login from claude-config volume${RESET}" ;;
+    echo -e "${GREEN}Auth: persisted login from claude-home volume${RESET}" ;;
   none)
     echo -e "${YELLOW}No ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN found.${RESET}"
     echo -e "${YELLOW}You'll be prompted to log in with your Claude account inside the${RESET}"
-    echo -e "${YELLOW}session (run /login). Credentials persist in the claude-config${RESET}"
+    echo -e "${YELLOW}session (run /login). Credentials persist in the claude-home${RESET}"
     echo -e "${YELLOW}Docker volume, so this is only needed once.${RESET}" ;;
 esac
 

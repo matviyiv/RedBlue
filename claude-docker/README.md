@@ -56,12 +56,26 @@ An API key is **optional**. Auth is resolved in this order:
 |----------|--------|-----|
 | 1 | API key | `export ANTHROPIC_API_KEY=sk-ant-...` |
 | 2 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
-| 3 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-config` Docker volume and reused by later runs (including headless) |
+| 3 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
 
 Headless runs (`run-headless.sh`, CI) need one of the three already in place;
 interactive sessions can always start and log in on the spot.
 
-To clear a persisted login: `docker volume rm <project>_claude-config`.
+## Persistent Sessions
+
+The container's entire home directory lives in the `claude-home` Docker
+volume, so **everything survives between runs**: login credentials,
+onboarding answers (theme, trust dialog — stored in `~/.claude.json`),
+settings, and session history. You go through Claude's setup exactly once.
+
+Past conversations can be resumed inside a new session with `claude
+--continue` / `--resume` (the history is in the persisted home).
+
+To wipe it and start fresh:
+
+```bash
+./scripts/start-cli.sh --clear    # removes the claude-home volume
+```
 
 ## Quick Start
 

@@ -31,7 +31,7 @@ services:
       #   ANTHROPIC_API_KEY       - Anthropic API key
       #   CLAUDE_CODE_OAUTH_TOKEN - `claude setup-token` (Pro/Max subscription)
       #   neither                 - /login inside the container, persisted in
-      #                             the claude-config volume
+      #                             the claude-home volume
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - CI=true
@@ -52,8 +52,11 @@ services:
       - ./.env.example:/workspace/.env.example:ro
       - ./.claude/CLAUDE.md:/workspace/CLAUDE.md:ro
 
-      # Persisted Claude auth (writable) — keeps /login credentials across runs
-      - claude-config:/home/claude/.claude
+      # Persisted Claude state (writable) — the WHOLE home dir, because
+      # Claude Code keeps onboarding/session state in ~/.claude.json (not
+      # inside ~/.claude/). Keeps login, settings, and session history
+      # across runs. Clear with: ./scripts/start-cli.sh --clear
+      - claude-home:/home/claude
 
     working_dir: /workspace
     network_mode: none
@@ -77,5 +80,7 @@ services:
     command: []
 
 volumes:
-  # Stores OAuth credentials from /login so key-less auth survives restarts
-  claude-config:
+  # Persists /login credentials, onboarding answers (~/.claude.json), and
+  # session history so nothing is asked twice. Remove to start fresh:
+  # ./scripts/start-cli.sh --clear   (or: docker compose down -v)
+  claude-home:

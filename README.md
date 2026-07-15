@@ -192,7 +192,11 @@ export ANTHROPIC_API_KEY=sk-ant-...           # a) API key
 export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # b) `claude setup-token` (Pro/Max)
 ./scripts/start-cli.sh                        # c) no key at all — log in via
                                               #    /login once; credentials persist
-                                              #    in the claude-config volume
+                                              #    in the claude-home volume
+
+# Claude state (login, onboarding, session history) persists between runs
+# in the claude-home Docker volume. Wipe it to start fresh:
+./scripts/start-cli.sh --clear
 
 # Headless prompt (CI-friendly)
 ./scripts/run-headless.sh "Review src/ for TypeScript errors and suggest fixes"

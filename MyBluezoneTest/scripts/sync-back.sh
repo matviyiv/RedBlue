@@ -86,6 +86,7 @@ while IFS= read -r -d '' f; do
     fi
   fi
 done < <(find "$BLUE_ZONE_ROOT/src" "$BLUE_ZONE_ROOT/ios" "$BLUE_ZONE_ROOT/android" \
+           "$BLUE_ZONE_ROOT/__tests__" \
            -type f -print0 2>/dev/null)
 
 # ── Deletions ─────────────────────────────────────────────────────────────────

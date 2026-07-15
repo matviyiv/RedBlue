@@ -3,10 +3,15 @@
 ## Scope
 You are working on a **React Native application**.
 Your working directory is `/workspace`.
-You have access to three directories:
+You have access to these directories:
 - `/workspace/src` - JavaScript/TypeScript app code
 - `/workspace/ios` - Swift/Objective-C native iOS source
 - `/workspace/android` - Kotlin/Java native Android source
+- `/workspace/__tests__` - Jest test suites
+
+You can also read and edit the package manifests:
+- `/workspace/package.json` - scripts and dependencies (writable — update libs here)
+- `/workspace/yarn.lock` - resolved dependency lockfile (writable — kept in sync by yarn)
 
 ## Stack
 - React Native (TypeScript)
@@ -20,7 +25,9 @@ You have access to three directories:
 - Read and analyze files inside `/workspace/src`, `/workspace/ios`, `/workspace/android`
 - Suggest code improvements, bug fixes, refactors across JS and native layers
 - Review native module bridge code (Swift <-> RN, Kotlin <-> RN)
-- Write or update test files
+- Write or update test files in `/workspace/__tests__`
+- Run the test suite (`yarn test`) and linter (`yarn lint`)
+- Update dependencies in `package.json` and let yarn update `yarn.lock`
 - Reference `/workspace/.env.example` for environment variable **names only**
 
 ## What you MUST NOT do

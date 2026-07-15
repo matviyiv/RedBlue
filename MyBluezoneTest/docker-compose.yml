@@ -2,9 +2,14 @@
 # Blue zone mounts (writable, pre-filtered by prepare-blue-zone.sh; changes land
 # in /tmp/blue-zone on the host — sync-back.sh copies back what you keep, the
 # next prepare run wipes it):
-#     /tmp/blue-zone/src     -> /workspace/src
-#     /tmp/blue-zone/ios     -> /workspace/ios
-#     /tmp/blue-zone/android -> /workspace/android
+#     /tmp/blue-zone/src       -> /workspace/src
+#     /tmp/blue-zone/ios       -> /workspace/ios
+#     /tmp/blue-zone/android   -> /workspace/android
+#     /tmp/blue-zone/__tests__ -> /workspace/__tests__
+#
+# Also mounted writable (edited in place, straight back to the repo):
+#     ./package.json -> /workspace/package.json
+#     ./yarn.lock    -> /workspace/yarn.lock
 #
 # Red zone - NEVER mounted:
 #     .env.* files
@@ -34,9 +39,14 @@ x-claude-common: &claude-common
     - /tmp/blue-zone/src:/workspace/src
     - /tmp/blue-zone/ios:/workspace/ios
     - /tmp/blue-zone/android:/workspace/android
+    - /tmp/blue-zone/__tests__:/workspace/__tests__
+
+    # Package manifests (writable so Claude can update dependencies) — changes
+    # write straight back to the repo; there are no secrets in these files.
+    - ./package.json:/workspace/package.json
+    - ./yarn.lock:/workspace/yarn.lock
 
     # Config files
-    - ./package.json:/workspace/package.json:ro
     - ./tsconfig.json:/workspace/tsconfig.json:ro
     - ./.env.example:/workspace/.env.example:ro
     - ./.claude/CLAUDE.md:/workspace/CLAUDE.md:ro

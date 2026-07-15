@@ -5,18 +5,21 @@ Red zone files are either not mounted or stripped by rsync before mounting.
 
 The blue zone mounts are **writable**: Claude can create and edit files inside
 `/workspace/src`, `/workspace/ios`, and `/workspace/android`. Writes go to the
-staging copy at `/tmp/blue-zone/` on the host — never directly to your repo.
+staging copy at `/tmp/blue-zone/` on the host, and `sync-back.sh` copies them
+into your repo **automatically when the session ends** (interactive and
+headless). Set `SYNC_BACK=0` to disable, or run it by hand:
 
 ```bash
-# Review what Claude changed
-diff -ru src /tmp/blue-zone/src
-
-# Copy changes back into your repo
-rsync -a /tmp/blue-zone/src/ src/
+./scripts/sync-back.sh --dry-run   # preview what would be copied back
+./scripts/sync-back.sh             # apply
 ```
 
-**Note:** `prepare-blue-zone.sh` wipes `/tmp/blue-zone/` at the start of every
-run — copy back anything you want to keep before starting the next session.
+Sync-back safety rules (enforced via a snapshot taken at prepare time):
+
+- Only files that were visible to Claude get updated in place.
+- A new file whose path collides with a stripped **red-zone** file is
+  **blocked** — it will never overwrite the real one; you get a warning instead.
+- Deletions are reported but never applied automatically.
 
 ## Blue Zone Contents
 
@@ -38,7 +41,8 @@ your-rn-project/
 │   ├── prepare-blue-zone.sh       <- rsync filter into /tmp/blue-zone/
 │   ├── validate-blue-zone.sh      <- Secret leak scanner
 │   ├── start-cli.sh               <- Interactive session (local dev)
-│   └── run-headless.sh            <- Headless prompt runner
+│   ├── run-headless.sh            <- Headless prompt runner
+│   └── sync-back.sh               <- Auto-syncs Claude's changes to the repo
 ├── Dockerfile
 ├── docker-compose.yml
 └── .gitlab-ci.yml

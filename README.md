@@ -47,7 +47,8 @@ into a staging directory. A second script (`validate-blue-zone.sh`) scans it for
 any leaked secrets before Docker ever starts. Claude Code then runs in a container
 that mounts the staging directory **writable** with `network_mode: none` — Claude
 can create and edit files, but writes land in the staging copy at `/tmp/blue-zone/`,
-never directly in your repo. Review and copy back what you want to keep.
+never directly in your repo. When the session ends, `sync-back.sh` automatically
+copies the changes into your repo, refusing to touch red-zone paths.
 
 ---
 
@@ -131,8 +132,13 @@ RedBlue/
      BLUE_ZONE_MANIFEST.md  → /workspace/        (read-only)
    network_mode: none  ← no outbound calls from inside the container
    runs: claude -p "..." --allowedTools Read,Write,Edit
-   writes stay in /tmp/blue-zone — copy back what you keep:
-     rsync -a /tmp/blue-zone/src/ src/
+
+4. sync-back.sh  (automatic when the session ends)
+   copies Claude's changes from /tmp/blue-zone back into the repo:
+     • updates only files Claude was allowed to see
+     • blocks new files that collide with stripped red-zone paths
+     • reports deletions but never applies them
+   disable with SYNC_BACK=0; preview with ./scripts/sync-back.sh --dry-run
 ```
 
 ---

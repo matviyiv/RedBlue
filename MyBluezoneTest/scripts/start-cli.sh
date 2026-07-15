@@ -56,6 +56,12 @@ echo ""
 
 echo -e "${YELLOW}Starting Claude Code session... (Ctrl+C to exit)${RESET}\n"
 
+# Sync Claude's changes back into the repo when the session ends, however it
+# ends (exit, Ctrl+C, error). Set SYNC_BACK=0 to disable.
+if [ "${SYNC_BACK:-1}" != "0" ]; then
+  trap 'echo ""; ./scripts/sync-back.sh' EXIT
+fi
+
 docker compose run --rm \
   ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \
   claude-cli

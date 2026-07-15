@@ -57,4 +57,10 @@ docker compose run --rm \
     --no-update-check \
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 
+# Sync any files Claude wrote back into the repo. Set SYNC_BACK=0 to disable.
+if [ "${SYNC_BACK:-1}" != "0" ]; then
+  echo ""
+  ./scripts/sync-back.sh
+fi
+
 echo -e "\n${GREEN}Done${RESET}"

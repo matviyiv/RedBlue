@@ -140,6 +140,14 @@ sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
 chmod -R a+rwX "$BLUE_ZONE_ROOT"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Snapshot of blue zone contents at prepare time.
+# sync-back.sh uses this to tell Claude's changes apart from red-zone files.
+# Lives at the blue zone root, which is NOT mounted into the container —
+# only src/, ios/, android/ are.
+# ─────────────────────────────────────────────────────────────────────────────
+(cd "$BLUE_ZONE_ROOT" && find src ios android -type f 2>/dev/null | sort > .blue-zone-snapshot)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 TOTAL=$(find "$BLUE_ZONE_ROOT" -type f | wc -l | tr -d ' ')

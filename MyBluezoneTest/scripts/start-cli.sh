@@ -41,7 +41,7 @@ echo -e "\n${BOLD}Step 2: Validating blue zone...${RESET}"
 ./scripts/validate-blue-zone.sh
 
 # ── Show mount summary ────────────────────────────────────────────────────────
-echo -e "\n${BOLD}Mounting into container (read-only):${RESET}"
+echo -e "\n${BOLD}Mounting into container (writable — changes land in /tmp/blue-zone):${RESET}"
 echo -e "  ${GREEN}src${RESET}     /tmp/blue-zone/src     -> /workspace/src"
 echo -e "  ${GREEN}ios${RESET}     /tmp/blue-zone/ios     -> /workspace/ios"
 echo -e "  ${GREEN}android${RESET} /tmp/blue-zone/android -> /workspace/android"

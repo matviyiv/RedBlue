@@ -45,7 +45,9 @@ android/keystore.props ✗
 A shell script (`prepare-blue-zone.sh`) uses `rsync` to copy only the blue zone
 into a staging directory. A second script (`validate-blue-zone.sh`) scans it for
 any leaked secrets before Docker ever starts. Claude Code then runs in a container
-that mounts the staging directory **read-only** with `network_mode: none`.
+that mounts the staging directory **writable** with `network_mode: none` — Claude
+can create and edit files, but writes land in the staging copy at `/tmp/blue-zone/`,
+never directly in your repo. Review and copy back what you want to keep.
 
 ---
 
@@ -123,12 +125,14 @@ RedBlue/
 
 3. docker compose run claude-code
    mounts:
-     /tmp/blue-zone/src     → /workspace/src     (read-only)
-     /tmp/blue-zone/ios     → /workspace/ios     (read-only)
-     /tmp/blue-zone/android → /workspace/android (read-only)
+     /tmp/blue-zone/src     → /workspace/src     (writable)
+     /tmp/blue-zone/ios     → /workspace/ios     (writable)
+     /tmp/blue-zone/android → /workspace/android (writable)
      BLUE_ZONE_MANIFEST.md  → /workspace/        (read-only)
    network_mode: none  ← no outbound calls from inside the container
-   runs: claude -p "..." --allowedTools Read
+   runs: claude -p "..." --allowedTools Read,Write,Edit
+   writes stay in /tmp/blue-zone — copy back what you keep:
+     rsync -a /tmp/blue-zone/src/ src/
 ```
 
 ---
@@ -252,7 +256,7 @@ Claude Pro/Max subscription — no API key needed).
 | Red zone files never reach Claude | `rsync` exclusions before Docker starts |
 | Blue zone is verified clean | `validate-blue-zone.sh` exits 1 on any violation |
 | Container can't phone home | `network_mode: none` in docker-compose |
-| Filesystem is read-only | All volume mounts use `:ro` |
+| Repo is never written directly | Writable mounts point at the `/tmp/blue-zone` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 

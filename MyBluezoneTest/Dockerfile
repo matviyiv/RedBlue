@@ -17,8 +17,10 @@ RUN addgroup -S claude && adduser -S claude -G claude
 # volume is first mounted, so persisted /login credentials are writable
 RUN mkdir -p /home/claude/.claude && chown -R claude:claude /home/claude/.claude
 
-# Working directory — blue zone will be mounted here
+# Working directory — blue zone will be mounted here.
+# Owned by claude so files can be created at the workspace root too.
 WORKDIR /workspace
+RUN chown claude:claude /workspace
 
 # Switch to non-root user
 USER claude

@@ -3,6 +3,21 @@
 Isolates Claude Code to a filtered blue zone only.
 Red zone files are either not mounted or stripped by rsync before mounting.
 
+The blue zone mounts are **writable**: Claude can create and edit files inside
+`/workspace/src`, `/workspace/ios`, and `/workspace/android`. Writes go to the
+staging copy at `/tmp/blue-zone/` on the host — never directly to your repo.
+
+```bash
+# Review what Claude changed
+diff -ru src /tmp/blue-zone/src
+
+# Copy changes back into your repo
+rsync -a /tmp/blue-zone/src/ src/
+```
+
+**Note:** `prepare-blue-zone.sh` wipes `/tmp/blue-zone/` at the start of every
+run — copy back anything you want to keep before starting the next session.
+
 ## Blue Zone Contents
 
 | Folder | What's included | What's excluded (red) |

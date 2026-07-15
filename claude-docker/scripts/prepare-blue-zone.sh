@@ -134,6 +134,12 @@ sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
   --exclude="*.aar"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Make the blue zone writable by the container's non-root user
+# (container uid differs from host uid, so group/other need rw on everything)
+# ─────────────────────────────────────────────────────────────────────────────
+chmod -R a+rwX "$BLUE_ZONE_ROOT"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 TOTAL=$(find "$BLUE_ZONE_ROOT" -type f | wc -l | tr -d ' ')

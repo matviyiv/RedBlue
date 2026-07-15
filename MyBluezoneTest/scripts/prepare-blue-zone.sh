@@ -174,6 +174,12 @@ MANIFEST="$BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md"
 echo -e "${GREEN}✓ Manifest written to $MANIFEST${RESET}\n"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Make the blue zone writable by the container's non-root user
+# (container uid differs from host uid, so group/other need rw on everything)
+# ─────────────────────────────────────────────────────────────────────────────
+chmod -R a+rwX "$BLUE_ZONE_ROOT"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 TOTAL=$(find "$BLUE_ZONE_ROOT" -type f | wc -l | tr -d ' ')

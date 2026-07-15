@@ -53,7 +53,7 @@ docker compose run --rm \
   ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \
   claude-code \
     -p "$PROMPT" \
-    --allowedTools "Read" \
+    --allowedTools "Read,Write,Edit" \
     --no-update-check \
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 

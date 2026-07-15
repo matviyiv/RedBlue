@@ -108,7 +108,8 @@ sync_zone "./ios" "$BLUE_ZONE_ROOT/ios" "ios" \
   --exclude="*.hmap"                   \
   --exclude="*.ipa"                    \
   --exclude="*.dSYM.zip"               \
-  --exclude="*.dSYM"
+  --exclude="*.dSYM"                   \
+  --exclude=".env*"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 🔵 android/ — Kotlin/Java source only
@@ -131,7 +132,8 @@ sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
   --exclude="*.apk"                     \
   --exclude="*.aab"                     \
   --exclude="*.so"                      \
-  --exclude="*.aar"
+  --exclude="*.aar"                     \
+  --exclude=".env*"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Make the blue zone writable by the container's non-root user

@@ -15,6 +15,12 @@ RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
 
+# Load the shared folder config (defines BLUE_ZONE_FOLDERS, BLUE_ZONE_ROOT,
+# BLUE_ZONE_COMPOSE_FILE).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../blue-zone.config.sh
+source "$SCRIPT_DIR/../blue-zone.config.sh"
+
 if [ "${1:-}" = "--clear" ]; then
   echo -e "${BOLD}Clearing persisted Claude state (login, onboarding, sessions)...${RESET}"
   docker compose down --volumes --remove-orphans
@@ -49,11 +55,16 @@ echo -e "${BOLD}Step 1: Preparing blue zone...${RESET}"
 echo -e "\n${BOLD}Step 2: Validating blue zone...${RESET}"
 ./scripts/validate-blue-zone.sh
 
+# Layer the generated per-folder mounts (docker-compose.blue-zone.yml, written
+# by prepare-blue-zone.sh) on top of the base compose file for every compose
+# call below.
+export COMPOSE_FILE="docker-compose.yml:$BLUE_ZONE_COMPOSE_FILE"
+
 # ── Show mount summary ────────────────────────────────────────────────────────
-echo -e "\n${BOLD}Mounting into container (writable — changes land in /tmp/blue-zone):${RESET}"
-echo -e "  ${GREEN}src${RESET}     /tmp/blue-zone/src     -> /workspace/src"
-echo -e "  ${GREEN}ios${RESET}     /tmp/blue-zone/ios     -> /workspace/ios"
-echo -e "  ${GREEN}android${RESET} /tmp/blue-zone/android -> /workspace/android"
+echo -e "\n${BOLD}Mounting into container (writable — changes land in $BLUE_ZONE_ROOT):${RESET}"
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  echo -e "  ${GREEN}$folder${RESET}  $BLUE_ZONE_ROOT/$folder -> /workspace/$folder"
+done
 echo ""
 echo -e "${BOLD}NOT mounted (red zone):${RESET}"
 echo -e "  ${RED}x${RESET} .env.* files"

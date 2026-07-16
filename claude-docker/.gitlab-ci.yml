@@ -6,7 +6,8 @@
 #   CLAUDE_CODE_OAUTH_TOKEN - `claude setup-token` output, Pro/Max
 #                             subscription (Masked, Protected)
 #
-# Blue zone: src/, ios/ (source only), android/ (source only)
+# Blue zone: the folders listed in blue-zone.config.sh (BLUE_ZONE_FOLDERS);
+#            default src/, ios/ (source only), android/ (source only)
 # Red zone:  .env.*, infra/, signing keys, build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -74,27 +75,38 @@ claude-security-review:
     - docker:24-dind
   needs: [build-claude-image, validate-blue-zone]
   script:
+    - apk add --no-cache bash
     - docker load < claude-image.tar.gz
+    # Build the per-folder --volume args and the prompt's target list from
+    # blue-zone.config.sh so this job never hardcodes the folder set.
     - |
+      bash <<'BASH'
+      set -e
+      source ./blue-zone.config.sh
+      VOLS=()
+      TARGETS=""
+      for f in "${BLUE_ZONE_FOLDERS[@]}"; do
+        VOLS+=(--volume "${BLUE_ZONE_ROOT}/$f:/workspace/$f:ro")
+        TARGETS="${TARGETS:+$TARGETS, }/workspace/$f"
+      done
       docker run --rm \
         --network none \
         --memory 512m \
-        --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-        --env CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
+        --env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+        --env CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
         --env CI=true \
-        --volume /tmp/blue-zone/src:/workspace/src:ro \
-        --volume /tmp/blue-zone/ios:/workspace/ios:ro \
-        --volume /tmp/blue-zone/android:/workspace/android:ro \
-        --volume $(pwd)/package.json:/workspace/package.json:ro \
-        --volume $(pwd)/tsconfig.json:/workspace/tsconfig.json:ro \
-        --volume $(pwd)/.env.example:/workspace/.env.example:ro \
-        --volume $(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro \
+        "${VOLS[@]}" \
+        --volume "$(pwd)/package.json:/workspace/package.json:ro" \
+        --volume "$(pwd)/tsconfig.json:/workspace/tsconfig.json:ro" \
+        --volume "$(pwd)/.env.example:/workspace/.env.example:ro" \
+        --volume "$(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro" \
         --workdir /workspace \
-        $CLAUDE_IMAGE \
-          -p "Review all files in /workspace/src, /workspace/ios, and /workspace/android for: security vulnerabilities, hardcoded secrets or credentials, and unsafe API usage. Output as JSON: [{file, severity, description}]" \
+        "$CLAUDE_IMAGE" \
+          -p "Review all files in $TARGETS for: security vulnerabilities, hardcoded secrets or credentials, and unsafe API usage. Output as JSON: [{file, severity, description}]" \
           --allowedTools "Read" \
           --output-format json \
         | tee claude-security-report.json
+      BASH
     - |
       HIGH=$(cat claude-security-report.json | jq -r '.result' | jq '[.[] | select(.severity=="high")] | length' 2>/dev/null || echo "0")
       echo "High severity issues: $HIGH"
@@ -117,31 +129,40 @@ claude-code-review:
     - docker:24-dind
   needs: [build-claude-image, validate-blue-zone]
   script:
-    - apk add --no-cache git
+    - apk add --no-cache git bash
+    # Diff only the configured blue-zone folders, and build the per-folder
+    # --volume args from blue-zone.config.sh so nothing hardcodes the folder set.
     - |
-      CHANGED=$(git diff --name-only origin/$CI_DEFAULT_BRANCH...HEAD \
-        -- src/ ios/ android/ | tr '\n' ' ')
+      bash <<'BASH'
+      set -e
+      source ./blue-zone.config.sh
+      PATHSPECS=()
+      VOLS=()
+      for f in "${BLUE_ZONE_FOLDERS[@]}"; do
+        PATHSPECS+=("$f/")
+        VOLS+=(--volume "${BLUE_ZONE_ROOT}/$f:/workspace/$f:ro")
+      done
+      CHANGED=$(git diff --name-only "origin/$CI_DEFAULT_BRANCH...HEAD" \
+        -- "${PATHSPECS[@]}" | tr '\n' ' ')
       echo "Changed blue zone files: $CHANGED"
-    - |
       docker run --rm \
         --network none \
         --memory 512m \
-        --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-        --env CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
+        --env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+        --env CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
         --env CI=true \
-        --volume /tmp/blue-zone/src:/workspace/src:ro \
-        --volume /tmp/blue-zone/ios:/workspace/ios:ro \
-        --volume /tmp/blue-zone/android:/workspace/android:ro \
-        --volume $(pwd)/package.json:/workspace/package.json:ro \
-        --volume $(pwd)/tsconfig.json:/workspace/tsconfig.json:ro \
-        --volume $(pwd)/.env.example:/workspace/.env.example:ro \
-        --volume $(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro \
+        "${VOLS[@]}" \
+        --volume "$(pwd)/package.json:/workspace/package.json:ro" \
+        --volume "$(pwd)/tsconfig.json:/workspace/tsconfig.json:ro" \
+        --volume "$(pwd)/.env.example:/workspace/.env.example:ro" \
+        --volume "$(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro" \
         --workdir /workspace \
-        $CLAUDE_IMAGE \
-          -p "Review these changed files for bugs, type errors, and React Native / Swift / Kotlin best practice violations: $CHANGED. Be concise and actionable." \
+        "$CLAUDE_IMAGE" \
+          -p "Review these changed files for bugs, type errors, and best-practice violations: $CHANGED. Be concise and actionable." \
           --allowedTools "Read" \
           --output-format json \
         | tee claude-review-report.json
+      BASH
   artifacts:
     paths:
       - claude-review-report.json

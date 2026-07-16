@@ -4,7 +4,9 @@ Isolates Claude Code to a filtered blue zone only.
 Red zone files are either not mounted or stripped by rsync before mounting.
 
 The blue zone mounts are **writable**: Claude can create and edit files inside
-`/workspace/src`, `/workspace/ios`, and `/workspace/android`. Writes go to the
+the configured folders (by default `/workspace/src`, `/workspace/ios`, and
+`/workspace/android` — see [Configuring blue-zone folders](#configuring-blue-zone-folders)).
+Writes go to the
 staging copy at `/tmp/blue-zone/` on the host, and `sync-back.sh` copies them
 into your repo **automatically when the session ends** (interactive and
 headless). Set `SYNC_BACK=0` to disable, or run it by hand:
@@ -23,7 +25,37 @@ Sync-back safety rules (enforced via a snapshot taken at prepare time):
   the blue zone at prepare time — red-zone paths are never in the snapshot, so
   they can never be deleted by sync-back.
 
+## Configuring blue-zone folders
+
+Which top-level folders are staged into the blue zone — and what gets stripped
+out of each — is defined in one place: **`blue-zone.config.sh`**. Nothing else
+is hardcoded, so adapting this setup to a non-React-Native project is a one-file
+edit.
+
+```bash
+# blue-zone.config.sh
+
+# The only directories mounted into the container, each at /workspace/<folder>.
+# A folder that doesn't exist in the repo is skipped with a warning.
+BLUE_ZONE_FOLDERS=(src ios android)      # e.g. (cmd internal pkg) for a Go svc,
+                                         #      (app lib spec)     for Rails, …
+
+# Stripped from every folder, whatever the project:
+BLUE_ZONE_COMMON_EXCLUDES=(".env*" "node_modules/")
+
+# Per-folder red-zone rules live in blue_zone_excludes_for() — add a `case`
+# arm when a new folder needs its own exclusions.
+```
+
+Edit `BLUE_ZONE_FOLDERS`, then run any of the scripts — `prepare-blue-zone.sh`
+stages exactly those folders, generates the matching docker-compose mounts
+(`docker-compose.blue-zone.yml`, layered on via `COMPOSE_FILE`), and
+`validate-blue-zone.sh` verifies every configured exclusion actually held. You
+do **not** touch `docker-compose.yml` or any script to add or remove a folder.
+
 ## Blue Zone Contents
+
+With the default `BLUE_ZONE_FOLDERS=(src ios android)`:
 
 | Folder | What's included | What's excluded (red) |
 |--------|----------------|----------------------|
@@ -45,8 +77,10 @@ your-rn-project/
 │   ├── start-cli.sh               <- Interactive session (local dev)
 │   ├── run-headless.sh            <- Headless prompt runner
 │   └── sync-back.sh               <- Auto-syncs Claude's changes to the repo
+├── blue-zone.config.sh            <- Folder list + exclusion rules (edit this)
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml             <- Base compose (no folder mounts hardcoded)
+├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
 └── .gitlab-ci.yml
 ```
 

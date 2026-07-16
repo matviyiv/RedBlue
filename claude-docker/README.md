@@ -3,8 +3,10 @@
 Isolates Claude Code to a filtered blue zone only.
 Red zone files are either not mounted or stripped by rsync before mounting.
 
-📊 See [docs/blue-zone-flow.md](docs/blue-zone-flow.md) for a diagram of how
-files move from the repo, through staging and the container, and back.
+📊 Diagrams:
+[docs/dev-setup-flow.md](docs/dev-setup-flow.md) — new-developer local setup;
+[docs/blue-zone-flow.md](docs/blue-zone-flow.md) — how files move from the repo,
+through staging and the container, and back.
 
 The blue zone mounts are **writable**: Claude can create and edit files inside
 the configured folders (by default `/workspace/src`, `/workspace/ios`, and

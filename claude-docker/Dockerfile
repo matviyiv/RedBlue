@@ -1,4 +1,8 @@
-FROM --platform=linux/amd64 node:22-alpine
+# Build for the host's native architecture by default. node:22-alpine is
+# multi-arch, so this works on both arm64 (Apple Silicon) and amd64 without
+# emulation. To force a specific arch, pass `docker build --platform <arch>`
+# (CI builds linux/amd64 that way); via compose, set CLAUDE_PLATFORM.
+FROM node:22-alpine
 
 # Install dependencies
 RUN apk add --no-cache \

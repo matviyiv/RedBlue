@@ -33,8 +33,11 @@ x-claude-common: &claude-common
   build:
     context: .
     dockerfile: Dockerfile
-    platforms:
-      - linux/amd64
+  # Build/run for the host's native architecture by default (empty = unset), so
+  # Apple Silicon (arm64) machines don't hit the "platform (linux/amd64) does
+  # not match the detected host platform (linux/arm64)" mismatch and slow QEMU
+  # emulation. Pin a specific arch when you need it: CLAUDE_PLATFORM=linux/amd64.
+  platform: ${CLAUDE_PLATFORM:-}
   image: claude-code:latest
   volumes:
     # Blue zone - pre-filtered per-folder copies are added by the generated

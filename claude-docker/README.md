@@ -58,6 +58,30 @@ stages exactly those folders, generates the matching docker-compose mounts
 `validate-blue-zone.sh` verifies every configured exclusion actually held. You
 do **not** touch `docker-compose.yml` or any script to add or remove a folder.
 
+## Content denylist (insecure strings)
+
+Filename patterns can't catch a secret hiding *inside* an otherwise-innocuous
+file. For that, list forbidden strings — one per line — in
+**`blue-zone-insecure-strings.txt`**. During `prepare-blue-zone.sh`, any staged
+file whose content contains one of them is **dropped before the blue zone is
+mounted**, so it never reaches the container (and, being absent from the
+prepare-time snapshot, is never re-added by `sync-back.sh`).
+
+```text
+# blue-zone-insecure-strings.txt   (# comments and blank lines ignored)
+BEGIN RSA PRIVATE KEY
+api.internal.mycorp.com
+AKIA
+password=
+```
+
+- Matching is **case-insensitive** and **substring** (fixed string, not regex).
+- Applies to every file in every configured folder.
+- The shipped file is a commented template — it removes nothing until you add
+  entries. Point elsewhere with `BLUE_ZONE_DENYLIST_FILE=/path/to/list`.
+- `validate-blue-zone.sh` re-scans the staged zone and **fails** if any
+  denylisted string slipped through, so the guarantee is checked, not assumed.
+
 ## Blue Zone Contents
 
 With the default `BLUE_ZONE_FOLDERS=(src ios android)`:
@@ -81,8 +105,10 @@ your-rn-project/
 │   ├── validate-blue-zone.sh      <- Secret leak scanner
 │   ├── start-cli.sh               <- Interactive session (local dev)
 │   ├── run-headless.sh            <- Headless prompt runner
-│   └── sync-back.sh               <- Auto-syncs Claude's changes to the repo
+│   ├── sync-back.sh               <- Auto-syncs Claude's changes to the repo
+│   └── diagnose-egress.sh         <- Probe the egress proxy allowlist
 ├── blue-zone.config.sh            <- Folder list + exclusion rules (edit this)
+├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
 ├── Dockerfile
 ├── docker-compose.yml             <- Base compose (no folder mounts hardcoded)
 ├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)

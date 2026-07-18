@@ -25,12 +25,17 @@ flowchart TD
         ws["Mounted folders (writable)<br/>Claude reads & edits here"]
     end
 
+    deny["blue-zone-insecure-strings.txt<br/>forbidden content strings"]
+
     cfg -.->|reads| prep
     cfg -.->|reads| val
     cfg -.->|reads| sync
+    deny -.->|reads| prep
+    deny -.->|reads| val
 
     blue -->|"prepare-blue-zone.sh<br/>rsync with --exclude"| prep((prepare))
     red -.->|stripped, never staged| xred(["✗ blocked"])
+    prep -->|"content scan:<br/>drop files with a<br/>forbidden string"| xdeny(["✗ removed, not mounted"])
     prep --> staged
     prep --> snap
     prep --> overlay
@@ -50,9 +55,9 @@ flowchart TD
     classDef danger fill:#fee,stroke:#c00,color:#900;
     classDef safe fill:#efe,stroke:#0a0,color:#060;
     classDef cfgcls fill:#eef,stroke:#33c,color:#229;
-    class red,xred,stop,xblock danger;
+    class red,xred,stop,xblock,xdeny danger;
     class blue,staged,ws safe;
-    class cfg cfgcls;
+    class cfg,deny cfgcls;
 ```
 
 ## Stages
@@ -61,6 +66,7 @@ flowchart TD
 |-------|--------|--------------|
 | **Configure** | `blue-zone.config.sh` | Declares `BLUE_ZONE_FOLDERS` and the common + per-folder exclusion rules. The only file you edit to adapt to a project. |
 | **Prepare** | `prepare-blue-zone.sh` | `rsync`s each configured folder into `/tmp/blue-zone/`, stripping red-zone files. Writes the snapshot and generates the docker-compose mount overlay. |
+| **Content scan** | `prepare-blue-zone.sh` + `blue-zone-insecure-strings.txt` | Drops any staged file whose content contains a forbidden string, so it is never mounted (and never enters the snapshot). |
 | **Validate** | `validate-blue-zone.sh` | Confirms every configured exclusion held and scans for hardcoded secrets. A leak aborts the run before anything is mounted. |
 | **Mount & run** | `start-cli.sh` / `run-headless.sh` | Layers the generated overlay onto `docker-compose.yml` via `COMPOSE_FILE` and starts Claude Code with only the blue-zone folders mounted (writable). |
 | **Sync back** | `sync-back.sh` | Copies Claude's changes into the repo. The snapshot lets it update/delete only files Claude was allowed to see; a new file whose path collides with a stripped red-zone file is blocked. |

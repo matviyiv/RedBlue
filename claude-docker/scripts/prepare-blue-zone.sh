@@ -82,6 +82,48 @@ for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
 done
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 🔒 Content denylist — drop any staged file that CONTAINS a forbidden string
+# (from blue-zone-insecure-strings.txt) so it is never mounted. This catches
+# secrets/insecure markers living inside otherwise-innocuous files, which the
+# filename-based excludes above can't see. Runs before the snapshot so removed
+# files are treated as if they were never in the blue zone.
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "${BOLD}[content denylist]${RESET} scanning staged files for forbidden strings"
+PATTERN_FILE="$(mktemp)"
+blue_zone_denylist_strings > "$PATTERN_FILE"
+
+if [ ! -s "$PATTERN_FILE" ]; then
+  echo -e "  ${YELLOW}⚠  no active entries in ${BLUE_ZONE_DENYLIST_FILE##*/} — content scan skipped${RESET}\n"
+else
+  # Existing staged folders only (skip any that were absent from the repo).
+  SCAN_DIRS=()
+  for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+    [ -d "$BLUE_ZONE_ROOT/$folder" ] && SCAN_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+  done
+
+  DENY_REMOVED=0
+  if [ "${#SCAN_DIRS[@]}" -gt 0 ]; then
+    # -r recursive, -l list files, -i case-insensitive, -a treat binary as text,
+    # -F fixed strings, -f patterns file. One pass over the whole staged tree.
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      HIT="$(grep -aoiFf "$PATTERN_FILE" "$f" 2>/dev/null | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')"
+      rel="${f#"$BLUE_ZONE_ROOT"/}"
+      echo -e "  ${RED}✗ removed${RESET} $rel ${RED}(matched: ${HIT:-forbidden string})${RESET}"
+      rm -f "$f"
+      DENY_REMOVED=$((DENY_REMOVED + 1))
+    done < <(grep -rliaFf "$PATTERN_FILE" "${SCAN_DIRS[@]}" 2>/dev/null || true)
+  fi
+
+  if [ "$DENY_REMOVED" -eq 0 ]; then
+    echo -e "  ${GREEN}✓ no staged file contained a forbidden string${RESET}\n"
+  else
+    echo -e "  ${RED}${BOLD}$DENY_REMOVED file(s) removed — not mounted into the container${RESET}\n"
+  fi
+fi
+rm -f "$PATTERN_FILE"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Make the blue zone writable by the container's non-root user
 # (container uid differs from host uid, so group/other need rw on everything)
 # ─────────────────────────────────────────────────────────────────────────────

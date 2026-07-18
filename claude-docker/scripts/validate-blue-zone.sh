@@ -129,6 +129,31 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Check 5: No content-denylist strings survived into the blue zone
+# (defense in depth — prepare-blue-zone.sh should already have removed any file
+#  containing one; this confirms nothing slipped through.)
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[5] Content denylist strings excluded...${RESET}"
+
+DENY_PATTERNS="$(mktemp)"
+blue_zone_denylist_strings > "$DENY_PATTERNS"
+
+if [ ! -s "$DENY_PATTERNS" ]; then
+  pass "No content denylist configured (${BLUE_ZONE_DENYLIST_FILE##*/} has no active entries)"
+else
+  DENY_HITS=$(grep -rliaFf "$DENY_PATTERNS" "$BLUE_ZONE_ROOT" 2>/dev/null || true)
+  if [ -n "$DENY_HITS" ]; then
+    while IFS= read -r hf; do
+      [ -n "$hf" ] || continue
+      fail "denylisted string present in staged file: ${hf#"$BLUE_ZONE_ROOT"/}"
+    done <<< "$DENY_HITS"
+  else
+    pass "No denylisted strings found in any staged file"
+  fi
+fi
+rm -f "$DENY_PATTERNS"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""

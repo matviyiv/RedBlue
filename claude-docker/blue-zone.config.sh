@@ -120,6 +120,19 @@ PATTERNS
   esac
 }
 
+# ── Content denylist ─────────────────────────────────────────────────────────
+# In addition to the filename exclusions above, any staged file whose CONTENT
+# contains one of these forbidden strings is dropped from the blue zone before
+# it is mounted — so it never reaches the container. Provide the strings in a
+# separate plain-text file, one per line (`#` comments and blank lines ignored).
+# Matching is case-insensitive, fixed-string (substring), and applied to every
+# file in every configured folder.
+#
+# Point this at your own list; the shipped blue-zone-insecure-strings.txt is a
+# commented template that removes nothing until you add entries.
+BLUE_ZONE_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BLUE_ZONE_DENYLIST_FILE="${BLUE_ZONE_DENYLIST_FILE:-$BLUE_ZONE_CONFIG_DIR/blue-zone-insecure-strings.txt}"
+
 # ── Derived helpers (do not usually need editing) ────────────────────────────
 
 # Root of the staged blue zone on the host. Only the folders in
@@ -156,4 +169,13 @@ blue_zone_all_patterns_for() {
     printf '%s\n' "$p"
   done
   blue_zone_excludes_for "$1"
+}
+
+# Emit the active content-denylist strings (comments + blank lines stripped),
+# one per line. Empty output means no content filtering is configured. Used by
+# both prepare-blue-zone.sh (to drop matching files) and validate-blue-zone.sh
+# (to confirm none survived).
+blue_zone_denylist_strings() {
+  [ -f "$BLUE_ZONE_DENYLIST_FILE" ] || return 0
+  grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$BLUE_ZONE_DENYLIST_FILE" || true
 }

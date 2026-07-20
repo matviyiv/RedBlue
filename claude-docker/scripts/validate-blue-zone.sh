@@ -79,19 +79,28 @@ done
 echo -e "\n${BOLD}[2] Scanning for hardcoded secrets...${RESET}"
 
 SECRET_PATTERNS=(
-  "password[[:space:]]*=[[:space:]]*['\"][^'\"]{4,}"
-  "secret[[:space:]]*=[[:space:]]*['\"][^'\"]{4,}"
-  "api_key[[:space:]]*=[[:space:]]*['\"][^'\"]{4,}"
-  "private_key[[:space:]]*=[[:space:]]*['\"][^'\"]{4,}"
+  # Keyword assignments — matches `key = "value"` and `key: "value"` (JSON/YAML).
+  # A quoted value is required on purpose, so TypeScript type annotations like
+  # `password: string` or `secret: boolean` don't trip the scanner.
+  "(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)[[:space:]]*[:=][[:space:]]*['\"][^'\"]{4,}"
+  # Provider / token shapes — high-signal, quote-independent (catches unquoted
+  # leaks the keyword rule above would miss).
   "sk-ant-[a-zA-Z0-9]+"
   "AKIA[0-9A-Z]{16}"
+  "gh[posru]_[A-Za-z0-9]{30,}"
+  "AIza[0-9A-Za-z_-]{35}"
+  "xox[baprs]-[A-Za-z0-9-]{10,}"
+  "eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}"
+  "-----BEGIN[A-Z ]*PRIVATE KEY-----"
+  "[Bb]earer[[:space:]]+[A-Za-z0-9._~+/=-]{20,}"
+  # Internal LAN addresses.
   "192\.168\.[0-9]+\.[0-9]+"
   "10\.[0-9]+\.[0-9]+\.[0-9]+"
 )
 
 SECRET_FOUND=0
 for pattern in "${SECRET_PATTERNS[@]}"; do
-  MATCHES=$(grep -rniE "$pattern" "$BLUE_ZONE_ROOT/" \
+  MATCHES=$(grep -rniE -e "$pattern" "$BLUE_ZONE_ROOT/" \
     --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
     --include="*.swift" --include="*.m" --include="*.kt" --include="*.java" \
     --include="*.json" --include="*.xml" \

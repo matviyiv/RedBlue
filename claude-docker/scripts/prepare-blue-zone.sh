@@ -102,21 +102,35 @@ else
   done
 
   DENY_REMOVED=0
+  DENY_ALLOWED=0
   if [ "${#SCAN_DIRS[@]}" -gt 0 ]; then
     # -r recursive, -l list files, -i case-insensitive, -a treat binary as text,
     # -F fixed strings, -f patterns file. One pass over the whole staged tree.
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      HIT="$(grep -aoiFf "$PATTERN_FILE" "$f" 2>/dev/null | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')"
       rel="${f#"$BLUE_ZONE_ROOT"/}"
+
+      # A file is only dropped for hits that AREN'T annotated with the allow
+      # marker. If every denylist hit sits on a `fine-for-claude` line, it's a
+      # reviewed exception and the file stays.
+      UNMARKED="$(blue_zone_unmarked_denylist_hits "$PATTERN_FILE" "$f")"
+      if [ -z "$UNMARKED" ]; then
+        echo -e "  ${YELLOW}↷ kept${RESET} $rel ${YELLOW}(denylist hit(s) marked '${BLUE_ZONE_ALLOW_MARKER}')${RESET}"
+        DENY_ALLOWED=$((DENY_ALLOWED + 1))
+        continue
+      fi
+
+      HIT="$(printf '%s\n' "$UNMARKED" | grep -aoiFf "$PATTERN_FILE" 2>/dev/null | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')"
       echo -e "  ${RED}✗ removed${RESET} $rel ${RED}(matched: ${HIT:-forbidden string})${RESET}"
       rm -f "$f"
       DENY_REMOVED=$((DENY_REMOVED + 1))
     done < <(grep -rliaFf "$PATTERN_FILE" "${SCAN_DIRS[@]}" 2>/dev/null || true)
   fi
 
+  [ "$DENY_ALLOWED" -gt 0 ] && \
+    echo -e "  ${YELLOW}$DENY_ALLOWED file(s) kept via '${BLUE_ZONE_ALLOW_MARKER}' marker${RESET}"
   if [ "$DENY_REMOVED" -eq 0 ]; then
-    echo -e "  ${GREEN}✓ no staged file contained a forbidden string${RESET}\n"
+    echo -e "  ${GREEN}✓ no staged file contained an un-exempted forbidden string${RESET}\n"
   else
     echo -e "  ${RED}${BOLD}$DENY_REMOVED file(s) removed — not mounted into the container${RESET}\n"
   fi

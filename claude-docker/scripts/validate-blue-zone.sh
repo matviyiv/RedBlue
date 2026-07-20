@@ -117,18 +117,21 @@ TEST_EXCLUDES=(
 
 SECRET_FOUND=0
 for pattern in "${SECRET_PATTERNS[@]}"; do
+  # Match with line context (file:line:text) so we can discount lines annotated
+  # with the allow marker, then collapse what remains back to unique filenames.
   MATCHES=$(grep -rniE -e "$pattern" "$BLUE_ZONE_ROOT/" \
     --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
     --include="*.swift" --include="*.m" --include="*.kt" --include="*.java" \
     --include="*.json" --include="*.xml" \
+    2>/dev/null | blue_zone_strip_allow_marked \
     "${TEST_EXCLUDES[@]}" \
-    -l 2>/dev/null || true)
+    | cut -d: -f1 | sort -u | tr '\n' ' ' | sed 's/ *$//' || true)
   if [ -n "$MATCHES" ]; then
     fail "Secret pattern '$pattern' found in: $MATCHES"
     SECRET_FOUND=1
   fi
 done
-[ $SECRET_FOUND -eq 0 ] && pass "No hardcoded secret patterns found"
+[ $SECRET_FOUND -eq 0 ] && pass "No hardcoded secret patterns found (marked exceptions ignored)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Check 3: No .env files anywhere in blue zone
@@ -169,14 +172,18 @@ if [ ! -s "$DENY_PATTERNS" ]; then
   pass "No content denylist configured (${BLUE_ZONE_DENYLIST_FILE##*/} has no active entries)"
 else
   DENY_HITS=$(grep -rliaFf "$DENY_PATTERNS" "$BLUE_ZONE_ROOT" 2>/dev/null || true)
+  DENY_REAL=0
   if [ -n "$DENY_HITS" ]; then
     while IFS= read -r hf; do
       [ -n "$hf" ] || continue
+      # Ignore files whose only hits are on allow-marked lines — a reviewed
+      # exception, not a leak.
+      [ -z "$(blue_zone_unmarked_denylist_hits "$DENY_PATTERNS" "$hf")" ] && continue
       fail "denylisted string present in staged file: ${hf#"$BLUE_ZONE_ROOT"/}"
+      DENY_REAL=$((DENY_REAL + 1))
     done <<< "$DENY_HITS"
-  else
-    pass "No denylisted strings found in any staged file"
   fi
+  [ "$DENY_REAL" -eq 0 ] && pass "No un-exempted denylisted strings found in any staged file"
 fi
 rm -f "$DENY_PATTERNS"
 

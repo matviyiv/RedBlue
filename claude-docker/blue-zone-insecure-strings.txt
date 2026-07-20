@@ -14,6 +14,14 @@
 # This shipped file is a template: every entry below is commented out, so by
 # default nothing is removed by content. Uncomment or add your own strings.
 #
+# Reviewed exceptions:
+#   A source line that also contains the allow marker (default: fine-for-claude,
+#   set via BLUE_ZONE_ALLOW_MARKER in blue-zone.config.sh) is treated as an
+#   intentional, human-reviewed exception. It is NOT dropped by the content
+#   scan and NOT flagged by the secret scan, so deliberate strings can stay:
+#       const sample = "password=hunter2"; // fine-for-claude
+#   The exemption is per line — an unmarked secret elsewhere is still removed.
+#
 # Examples (uncomment / adapt to your project):
 # BEGIN RSA PRIVATE KEY
 # PRIVATE KEY

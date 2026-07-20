@@ -1,7 +1,7 @@
 // auth.types.ts — Blue zone contract for the authentication API layer
 // Contains: request/response shapes, session state, error types
 // Does NOT contain: URLs, tokens, implementation details
-// Implementation lives in src/api/auth-api.ts (red zone — not visible in this workspace)
+// Implementation lives in src/api/auth-api.ts (red zone — not visible in workspace)
 
 export interface LoginRequest {
   email: string;
@@ -34,8 +34,8 @@ export interface AuthSession {
   expiresAt: number;
 }
 
-// Function signature contract — the concrete implementation lives in the red zone.
-// Accept this interface as a prop or via context; do not import the implementation directly.
+// Function signature contract — implementation lives in the red zone.
+// Accept as a prop or via context; do not import the concrete module directly.
 export interface IAuthApi {
   login(request: LoginRequest): Promise<LoginResponse>;
   logout(): Promise<void>;

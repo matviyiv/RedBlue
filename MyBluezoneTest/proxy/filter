@@ -3,8 +3,11 @@
 # LAN address included — is denied by `FilterDefaultDeny Yes`.
 #
 # Anthropic-owned domains cover the API, the login/OAuth token exchange, and
-# feature-flag/telemetry (statsig.anthropic.com). Add a line if your workflow
-# needs another host — keep it as tight as possible.
+# feature-flag/telemetry (statsig.anthropic.com). claude.com covers the auth /
+# connectivity endpoints (platform.claude.com) newer Claude Code versions use —
+# without it an expired login can't refresh and you get ERR_SOCKET_CLOSED /
+# "Unable to connect to Anthropic services". Add a line if your workflow needs
+# another host — keep it as tight as possible.
 (^|\.)anthropic\.com$
 (^|\.)claude\.ai$
 (^|\.)claude\.com$

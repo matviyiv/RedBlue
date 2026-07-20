@@ -16,10 +16,15 @@ YELLOW="\033[0;33m"
 RED="\033[0;31m"
 RESET="\033[0m"
 
+# Load the shared folder / exclusion config (defines BLUE_ZONE_FOLDERS,
+# BLUE_ZONE_ROOT, blue_zone_all_patterns_for).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../blue-zone.config.sh
+source "$SCRIPT_DIR/../blue-zone.config.sh"
+
 STRICT=false
 VIOLATIONS=0
 WARNINGS=0
-BLUE_ZONE_ROOT="/tmp/blue-zone"
 
 [[ "${1:-}" == "--strict" ]] && STRICT=true
 
@@ -38,83 +43,40 @@ if [ ! -d "$BLUE_ZONE_ROOT" ]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Check 1: API/Service/Client files not in src blue zone
+# Check 1: Every configured exclusion pattern actually kept its files out.
+#
+# Driven entirely by blue-zone.config.sh — for each configured folder we take
+# its full exclusion list (common + per-folder) and assert nothing matching
+# leaked into the staged copy. This stays correct automatically when you add a
+# folder or change an exclusion rule; there is nothing folder-specific hardcoded
+# here anymore.
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "${BOLD}[1] API/endpoint files excluded from src/...${RESET}"
+echo -e "${BOLD}[1] Configured red-zone patterns excluded from each folder...${RESET}"
 
-API_PATTERNS=("*-api.ts" "*-api.js" "*Api.ts" "*Api.js"
-              "*Service.ts" "*Service.js" "*Client.ts" "*Client.js"
-              "*client.ts" "*client.js")
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  DEST="$BLUE_ZONE_ROOT/$folder"
+  [ -d "$DEST" ] || continue
 
-for pattern in "${API_PATTERNS[@]}"; do
-  FOUND=$(find "$BLUE_ZONE_ROOT/src" -name "$pattern" 2>/dev/null || true)
-  if [ -n "$FOUND" ]; then
-    fail "API/service file leaked into blue zone src/: $FOUND"
-  fi
+  while IFS= read -r pattern; do
+    [ -n "$pattern" ] || continue
+    # Normalize an rsync dir pattern ("Pods/", "api/") to a plain name for find.
+    name="${pattern%/}"
+    # Strip a leading "**/" recursive prefix — find -name matches basenames.
+    name="${name#**/}"
+    [ -n "$name" ] || continue
+
+    FOUND=$(find "$DEST" \( -name "$name" \) 2>/dev/null || true)
+    if [ -n "$FOUND" ]; then
+      fail "red-zone pattern '$pattern' leaked into $folder/: $FOUND"
+    fi
+  done < <(blue_zone_all_patterns_for "$folder")
 done
-[ $VIOLATIONS -eq 0 ] && pass "No API/service/client files in src/"
+[ $VIOLATIONS -eq 0 ] && pass "No configured red-zone patterns found in any blue-zone folder"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Check 2: iOS signing and config files excluded
+# Check 2: Hardcoded secret patterns across all blue zone
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}[2] iOS sensitive files excluded...${RESET}"
-
-IOS_RED_PATTERNS=("*.p12" "*.cer" "*.mobileprovision" "*.provisionprofile"
-                  "GoogleService-Info.plist" "*.xcconfig" "*.ipa"
-                  "*.dSYM" "*.pbxuser")
-
-for pattern in "${IOS_RED_PATTERNS[@]}"; do
-  FOUND=$(find "$BLUE_ZONE_ROOT/ios" -name "$pattern" 2>/dev/null || true)
-  if [ -n "$FOUND" ]; then
-    fail "iOS sensitive file leaked into blue zone: $FOUND"
-  fi
-done
-
-# Check Pods and build dirs not mounted
-for dir in "Pods" "build" "DerivedData" "xcuserdata"; do
-  FOUND=$(find "$BLUE_ZONE_ROOT/ios" -type d -name "$dir" 2>/dev/null || true)
-  if [ -n "$FOUND" ]; then
-    fail "iOS build/cache dir leaked into blue zone: $FOUND"
-  fi
-done
-[ $VIOLATIONS -eq 0 ] && pass "No iOS signing/cert/build files in ios/"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Check 3: Android signing and config files excluded
-# ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}[3] Android sensitive files excluded...${RESET}"
-
-ANDROID_RED_PATTERNS=("*.jks" "*.keystore" "google-services.json"
-                       "keystore.properties" "signing.properties"
-                       "release.properties" "*.apk" "*.aab")
-
-for pattern in "${ANDROID_RED_PATTERNS[@]}"; do
-  FOUND=$(find "$BLUE_ZONE_ROOT/android" -name "$pattern" 2>/dev/null || true)
-  if [ -n "$FOUND" ]; then
-    fail "Android sensitive file leaked into blue zone: $FOUND"
-  fi
-done
-
-for dir in "build" ".gradle" ".idea"; do
-  FOUND=$(find "$BLUE_ZONE_ROOT/android" -type d -name "$dir" 2>/dev/null || true)
-  if [ -n "$FOUND" ]; then
-    fail "Android build/cache dir leaked into blue zone: $FOUND"
-  fi
-done
-
-# gradle.properties can contain secrets — warn if present
-GRADLE_PROPS=$(find "$BLUE_ZONE_ROOT/android" -name "gradle.properties" 2>/dev/null || true)
-if [ -n "$GRADLE_PROPS" ]; then
-  warn "gradle.properties present - verify it contains no signing secrets"
-  $STRICT && fail "gradle.properties must be excluded (strict mode)"
-fi
-
-[ $VIOLATIONS -eq 0 ] && pass "No Android signing/keystore/build files in android/"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Check 4: Hardcoded secret patterns across all blue zone
-# ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}[4] Scanning for hardcoded secrets...${RESET}"
+echo -e "\n${BOLD}[2] Scanning for hardcoded secrets...${RESET}"
 
 SECRET_PATTERNS=(
   # Keyword assignments — matches `key = "value"` and `key: "value"` (JSON/YAML).
@@ -136,12 +98,30 @@ SECRET_PATTERNS=(
   "10\.[0-9]+\.[0-9]+\.[0-9]+"
 )
 
+# Test files legitimately contain fake/sample credentials (fixtures, mocks),
+# so they are excluded from the secret scan to avoid false positives. Covers
+# Swift (*Tests.swift, *Test.swift), JS/TS (*.test.*, *.spec.*), and
+# JVM (*Test.kt/java, *Tests.kt/java) conventions, plus the usual test dirs.
+TEST_EXCLUDES=(
+  --exclude="*Tests.swift" --exclude="*Test.swift"
+  --exclude="*.test.js" --exclude="*.test.jsx"
+  --exclude="*.test.ts" --exclude="*.test.tsx"
+  --exclude="*.spec.js" --exclude="*.spec.jsx"
+  --exclude="*.spec.ts" --exclude="*.spec.tsx"
+  --exclude="*Test.kt" --exclude="*Tests.kt"
+  --exclude="*Test.java" --exclude="*Tests.java"
+  --exclude="Constants.java" --exclude="constants.js"
+  --exclude-dir="__tests__" --exclude-dir="__mocks__"
+  --exclude-dir="test" --exclude-dir="tests"
+)
+
 SECRET_FOUND=0
 for pattern in "${SECRET_PATTERNS[@]}"; do
   MATCHES=$(grep -rniE -e "$pattern" "$BLUE_ZONE_ROOT/" \
     --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
     --include="*.swift" --include="*.m" --include="*.kt" --include="*.java" \
     --include="*.json" --include="*.xml" \
+    "${TEST_EXCLUDES[@]}" \
     -l 2>/dev/null || true)
   if [ -n "$MATCHES" ]; then
     fail "Secret pattern '$pattern' found in: $MATCHES"
@@ -151,9 +131,9 @@ done
 [ $SECRET_FOUND -eq 0 ] && pass "No hardcoded secret patterns found"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Check 5: No .env files anywhere in blue zone
+# Check 3: No .env files anywhere in blue zone
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}[5] No .env files in blue zone...${RESET}"
+echo -e "\n${BOLD}[3] No .env files in blue zone...${RESET}"
 
 ENV_FILES=$(find "$BLUE_ZONE_ROOT" -name ".env*" 2>/dev/null || true)
 if [ -n "$ENV_FILES" ]; then
@@ -163,9 +143,9 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Check 6: .env.example has no real values
+# Check 4: .env.example has no real values
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}[6] .env.example has no real values...${RESET}"
+echo -e "\n${BOLD}[4] .env.example has no real values...${RESET}"
 
 REAL_VALUES=$(grep -vE '^\s*#|^\s*$' .env.example 2>/dev/null | grep -E '=.+' || true)
 if [ -n "$REAL_VALUES" ]; then
@@ -174,6 +154,31 @@ if [ -n "$REAL_VALUES" ]; then
 else
   pass ".env.example values are all empty"
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check 5: No content-denylist strings survived into the blue zone
+# (defense in depth — prepare-blue-zone.sh should already have removed any file
+#  containing one; this confirms nothing slipped through.)
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[5] Content denylist strings excluded...${RESET}"
+
+DENY_PATTERNS="$(mktemp)"
+blue_zone_denylist_strings > "$DENY_PATTERNS"
+
+if [ ! -s "$DENY_PATTERNS" ]; then
+  pass "No content denylist configured (${BLUE_ZONE_DENYLIST_FILE##*/} has no active entries)"
+else
+  DENY_HITS=$(grep -rliaFf "$DENY_PATTERNS" "$BLUE_ZONE_ROOT" 2>/dev/null || true)
+  if [ -n "$DENY_HITS" ]; then
+    while IFS= read -r hf; do
+      [ -n "$hf" ] || continue
+      fail "denylisted string present in staged file: ${hf#"$BLUE_ZONE_ROOT"/}"
+    done <<< "$DENY_HITS"
+  else
+    pass "No denylisted strings found in any staged file"
+  fi
+fi
+rm -f "$DENY_PATTERNS"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary

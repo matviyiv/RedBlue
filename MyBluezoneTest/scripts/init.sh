@@ -12,6 +12,11 @@ YELLOW="\033[0;33m"
 RED="\033[0;31m"
 RESET="\033[0m"
 
+# Load the shared folder config (defines BLUE_ZONE_FOLDERS).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../blue-zone.config.sh
+source "$SCRIPT_DIR/../blue-zone.config.sh"
+
 echo -e "${BOLD}Claude Code Blue Zone - Init${RESET}\n"
 
 # ── 1. Check prerequisites ────────────────────────────────────────────────────
@@ -86,8 +91,9 @@ fi
 
 # ── 5. Verify folder structure ────────────────────────────────────────────────
 echo -e "\n${BOLD}[5/6] Checking project structure...${RESET}"
+echo -e "  Blue zone folders (from blue-zone.config.sh): ${BOLD}${BLUE_ZONE_FOLDERS[*]}${RESET}"
 
-for dir in src ios android; do
+for dir in "${BLUE_ZONE_FOLDERS[@]}"; do
   if [ -d "./$dir" ]; then
     echo -e "  ${GREEN}$dir/ found${RESET}"
   else

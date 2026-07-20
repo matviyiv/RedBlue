@@ -13,6 +13,11 @@ RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
 
+# Load the shared folder config (defines BLUE_ZONE_COMPOSE_FILE).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../blue-zone.config.sh
+source "$SCRIPT_DIR/../blue-zone.config.sh"
+
 PROMPT="${1:-}"
 shift || true
 EXTRA_ARGS=("$@")
@@ -46,6 +51,10 @@ echo -e "${BOLD}[1/3] Preparing blue zone...${RESET}"
 
 echo -e "${BOLD}[2/3] Validating blue zone...${RESET}"
 ./scripts/validate-blue-zone.sh
+
+# Layer the generated per-folder mounts (docker-compose.blue-zone.yml, written
+# by prepare-blue-zone.sh) on top of the base compose file.
+export COMPOSE_FILE="docker-compose.yml:$BLUE_ZONE_COMPOSE_FILE"
 
 echo -e "\n${BOLD}[3/3] Running Claude Code...${RESET}\n"
 

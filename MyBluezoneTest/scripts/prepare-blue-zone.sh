@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # prepare-blue-zone.sh
-# Copies src/, ios/, android/ into /tmp/blue-zone/ with red zone files excluded.
-# Run this BEFORE docker compose to ensure clean filtered mounts.
+# Copies the configured blue-zone folders into /tmp/blue-zone/ with red zone
+# files excluded. Run this BEFORE docker compose to ensure clean filtered mounts.
+#
+# The folder list and exclusion rules come from blue-zone.config.sh — edit that
+# file to adapt the blue zone to your project. This script is project-agnostic.
 #
 # Usage: ./scripts/prepare-blue-zone.sh
 # ─────────────────────────────────────────────────────────────────────────────
@@ -16,13 +19,21 @@ RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
 
-BLUE_ZONE_ROOT="/tmp/blue-zone"
+# Load the shared folder / exclusion config (defines BLUE_ZONE_FOLDERS,
+# BLUE_ZONE_ROOT, BLUE_ZONE_COMPOSE_FILE and helpers).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../blue-zone.config.sh
+source "$SCRIPT_DIR/../blue-zone.config.sh"
 
 echo -e "${BOLD}${CYAN}🔵 Preparing Blue Zone...${RESET}\n"
+echo -e "  Folders: ${BOLD}${BLUE_ZONE_FOLDERS[*]}${RESET}\n"
 
 # ── Wipe previous run ─────────────────────────────────────────────────────────
 rm -rf "$BLUE_ZONE_ROOT"
-mkdir -p "$BLUE_ZONE_ROOT"/{src,ios,android,__tests__}
+mkdir -p "$BLUE_ZONE_ROOT"
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  mkdir -p "$BLUE_ZONE_ROOT/$folder"
+done
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helper: rsync a folder with exclusions and print audit diff
@@ -62,128 +73,55 @@ sync_zone() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🔵 src/ — JS/TS app code, excluding API/service/client files
+# 🔵 Stage each configured folder with its exclusions
+#    (common excludes + per-folder rules, both from blue-zone.config.sh)
 # ─────────────────────────────────────────────────────────────────────────────
-sync_zone "./src" "$BLUE_ZONE_ROOT/src" "src" \
-  --exclude="*-api.ts"        \
-  --exclude="*-api.js"        \
-  --exclude="*Api.ts"         \
-  --exclude="*Api.js"         \
-  --exclude="*Service.ts"     \
-  --exclude="*Service.js"     \
-  --exclude="*Client.ts"      \
-  --exclude="*Client.js"      \
-  --exclude="*client.ts"      \
-  --exclude="*client.js"      \
-  --exclude="api/"            \
-  --exclude="services/"       \
-  --exclude="*.graphql"       \
-  --exclude="*.gql"           \
-  --exclude=".env*"           \
-  --exclude="node_modules/"
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  blue_zone_build_excludes "$folder" EXCLUDE_ARGS
+  sync_zone "./$folder" "$BLUE_ZONE_ROOT/$folder" "$folder" "${EXCLUDE_ARGS[@]}"
+done
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 🔵 ios/ — Swift/ObjC source only
-# Excluded: signing, certs, xcconfig secrets, pods, build artifacts
+# 🔒 Content denylist — drop any staged file that CONTAINS a forbidden string
+# (from blue-zone-insecure-strings.txt) so it is never mounted. This catches
+# secrets/insecure markers living inside otherwise-innocuous files, which the
+# filename-based excludes above can't see. Runs before the snapshot so removed
+# files are treated as if they were never in the blue zone.
 # ─────────────────────────────────────────────────────────────────────────────
-sync_zone "./ios" "$BLUE_ZONE_ROOT/ios" "ios" \
-  --exclude="*.p12"                     \
-  --exclude="*.cer"                     \
-  --exclude="*.mobileprovision"         \
-  --exclude="*.provisionprofile"        \
-  --exclude="GoogleService-Info.plist"  \
-  --exclude="**/GoogleService-Info.plist" \
-  --exclude="*.xcconfig"               \
-  --exclude="Pods/"                    \
-  --exclude="build/"                   \
-  --exclude="DerivedData/"             \
-  --exclude="*.xcworkspace/xcuserdata/"\
-  --exclude="*.xcodeproj/xcuserdata/"  \
-  --exclude="*.xcodeproj/project.xcworkspace/xcuserdata/" \
-  --exclude="*.pbxuser"                \
-  --exclude="*.mode1v3"                \
-  --exclude="*.mode2v3"                \
-  --exclude="*.perspectivev3"          \
-  --exclude="xcuserdata/"              \
-  --exclude="*.hmap"                   \
-  --exclude="*.ipa"                    \
-  --exclude="*.dSYM.zip"               \
-  --exclude="*.dSYM"                   \
-  --exclude=".env*"
+echo -e "${BOLD}[content denylist]${RESET} scanning staged files for forbidden strings"
+PATTERN_FILE="$(mktemp)"
+blue_zone_denylist_strings > "$PATTERN_FILE"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🔵 android/ — Kotlin/Java source only
-# Excluded: signing keys, google-services, build artifacts, gradle cache
-# ─────────────────────────────────────────────────────────────────────────────
-sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
-  --exclude="*.jks"                     \
-  --exclude="*.keystore"                \
-  --exclude="google-services.json"      \
-  --exclude="**/google-services.json"   \
-  --exclude="release.properties"        \
-  --exclude="keystore.properties"       \
-  --exclude="signing.properties"        \
-  --exclude=".gradle/"                  \
-  --exclude="build/"                    \
-  --exclude="**/build/"                 \
-  --exclude=".idea/"                    \
-  --exclude="local.properties"          \
-  --exclude="gradle.properties"         \
-  --exclude="*.apk"                     \
-  --exclude="*.aab"                     \
-  --exclude="*.so"                      \
-  --exclude="AndroidManifest.xml"       \
-  --exclude="network_security_config.xml" \
-  --exclude="*.aar"                     \
-  --exclude=".env*"
+if [ ! -s "$PATTERN_FILE" ]; then
+  echo -e "  ${YELLOW}⚠  no active entries in ${BLUE_ZONE_DENYLIST_FILE##*/} — content scan skipped${RESET}\n"
+else
+  # Existing staged folders only (skip any that were absent from the repo).
+  SCAN_DIRS=()
+  for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+    [ -d "$BLUE_ZONE_ROOT/$folder" ] && SCAN_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+  done
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 🔵 __tests__/ — Jest test suites. No red zone here, but keep secrets and
-# installed deps out of the staged copy just in case.
-# ─────────────────────────────────────────────────────────────────────────────
-sync_zone "./__tests__" "$BLUE_ZONE_ROOT/__tests__" "__tests__" \
-  --exclude=".env*"           \
-  --exclude="node_modules/"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Generate BLUE_ZONE_MANIFEST.md — gives Claude a map of what was excluded
-# ─────────────────────────────────────────────────────────────────────────────
-MANIFEST="$BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md"
-
-{
-  printf "# Blue Zone Manifest\n"
-  printf "# Generated: %s\n\n" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-  printf "## Files excluded from src/ (red zone — exist on host, not visible here)\n\n"
-  EXCLUDED_SRC=$(comm -23 \
-    <(find "./src" -type f | sed "s|./src/||" | sort) \
-    <(find "$BLUE_ZONE_ROOT/src" -type f | sed "s|$BLUE_ZONE_ROOT/src/||" | sort) \
-  )
-  if [ -n "$EXCLUDED_SRC" ]; then
-    printf "%s\n" "$EXCLUDED_SRC" | while IFS= read -r f; do
-      printf -- "- src/%s\n" "$f"
-    done
-  else
-    printf "_No src/ files were excluded._\n"
+  DENY_REMOVED=0
+  if [ "${#SCAN_DIRS[@]}" -gt 0 ]; then
+    # -r recursive, -l list files, -i case-insensitive, -a treat binary as text,
+    # -F fixed strings, -f patterns file. One pass over the whole staged tree.
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      HIT="$(grep -aoiFf "$PATTERN_FILE" "$f" 2>/dev/null | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')"
+      rel="${f#"$BLUE_ZONE_ROOT"/}"
+      echo -e "  ${RED}✗ removed${RESET} $rel ${RED}(matched: ${HIT:-forbidden string})${RESET}"
+      rm -f "$f"
+      DENY_REMOVED=$((DENY_REMOVED + 1))
+    done < <(grep -rliaFf "$PATTERN_FILE" "${SCAN_DIRS[@]}" 2>/dev/null || true)
   fi
 
-  printf "\n## Type contracts available at src/types/\n\n"
-  if [ -d "$BLUE_ZONE_ROOT/src/types" ]; then
-    find "$BLUE_ZONE_ROOT/src/types" -type f -name "*.ts" | sort | \
-      sed "s|$BLUE_ZONE_ROOT/||" | while IFS= read -r f; do
-        printf -- "- %s\n" "$f"
-      done
+  if [ "$DENY_REMOVED" -eq 0 ]; then
+    echo -e "  ${GREEN}✓ no staged file contained a forbidden string${RESET}\n"
   else
-    printf "_src/types/ not found — add TypeScript interface files there._\n"
+    echo -e "  ${RED}${BOLD}$DENY_REMOVED file(s) removed — not mounted into the container${RESET}\n"
   fi
-
-  printf "\n## What these exclusions mean\n\n"
-  printf "The files above contain implementation details (API endpoints, server\n"
-  printf "hostnames, env var reads) that are red zone. Their TypeScript contracts\n"
-  printf "are exposed in src/types/ — use those interfaces when writing or reviewing code.\n"
-} > "$MANIFEST"
-
-echo -e "${GREEN}✓ Manifest written to $MANIFEST${RESET}\n"
+fi
+rm -f "$PATTERN_FILE"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Make the blue zone writable by the container's non-root user
@@ -195,9 +133,31 @@ chmod -R a+rwX "$BLUE_ZONE_ROOT"
 # Snapshot of blue zone contents at prepare time.
 # sync-back.sh uses this to tell Claude's changes apart from red-zone files.
 # Lives at the blue zone root, which is NOT mounted into the container —
-# only src/, ios/, android/ and the manifest are.
+# only the configured folders are.
 # ─────────────────────────────────────────────────────────────────────────────
-(cd "$BLUE_ZONE_ROOT" && find src ios android __tests__ -type f 2>/dev/null | sort > .blue-zone-snapshot)
+(cd "$BLUE_ZONE_ROOT" && find "${BLUE_ZONE_FOLDERS[@]}" -type f 2>/dev/null | sort > .blue-zone-snapshot)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generate the docker-compose overlay that mounts each configured folder into
+# both Claude services. Layered on top of docker-compose.yml via COMPOSE_FILE by
+# start-cli.sh / run-headless.sh. Regenerated every run — never edit by hand.
+# ─────────────────────────────────────────────────────────────────────────────
+COMPOSE_OUT="$SCRIPT_DIR/../$BLUE_ZONE_COMPOSE_FILE"
+{
+  echo "# ─────────────────────────────────────────────────────────────────────"
+  echo "# AUTO-GENERATED by prepare-blue-zone.sh from blue-zone.config.sh."
+  echo "# Regenerated on every prepare run — do NOT edit by hand."
+  echo "# Mounts each configured blue-zone folder into both Claude services."
+  echo "# ─────────────────────────────────────────────────────────────────────"
+  echo "services:"
+  for svc in claude-code claude-cli; do
+    echo "  $svc:"
+    echo "    volumes:"
+    for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+      echo "      - $BLUE_ZONE_ROOT/$folder:/workspace/$folder"
+    done
+  done
+} > "$COMPOSE_OUT"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Summary
@@ -207,9 +167,7 @@ echo -e "${BOLD}─────────────────────�
 echo -e "${GREEN}${BOLD}✅ Blue zone ready at $BLUE_ZONE_ROOT${RESET}"
 echo -e "   Total files: ${BOLD}$TOTAL${RESET}"
 echo -e "   Mounts:"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/src                    → /workspace/src"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/ios                    → /workspace/ios"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/android                → /workspace/android"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/__tests__              → /workspace/__tests__"
-echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/BLUE_ZONE_MANIFEST.md  → /workspace/BLUE_ZONE_MANIFEST.md"
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/$folder → /workspace/$folder"
+done
 echo -e "${BOLD}────────────────────────────────────────${RESET}"

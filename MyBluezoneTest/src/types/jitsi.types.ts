@@ -1,7 +1,7 @@
 // jitsi.types.ts — Blue zone contract for the video conferencing service layer
 // Contains: room config shapes, participant info, service function signatures
 // Does NOT contain: server hostnames, room URLs, ICE/TURN credentials
-// Implementation lives in src/services/jitsiService.ts (red zone — not visible in this workspace)
+// Implementation lives in src/services/jitsiService.ts (red zone — not visible in workspace)
 
 export interface JitsiRoomOptions {
   roomName: string;
@@ -23,8 +23,8 @@ export interface JitsiRoomState {
   localParticipantId: string | null;
 }
 
-// Function signature contract — the concrete implementation lives in the red zone.
-// Accept this interface as a prop or via context; do not import the implementation directly.
+// Function signature contract — implementation lives in the red zone.
+// Accept as a prop or via context; do not import the concrete module directly.
 export interface IJitsiService {
   joinRoom(options: JitsiRoomOptions): Promise<void>;
   leaveRoom(): Promise<void>;

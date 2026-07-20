@@ -12,3 +12,8 @@ keystore.properties
 /ios/build
 /android/build
 /android/app/build
+
+# Blue-zone tooling is materialized from claude-docker/ (single source of truth),
+# not hand-maintained here. Copy it in with generate-test-project.sh or:
+#   cp -R ../claude-docker/{scripts,blue-zone.config.sh,blue-zone-insecure-strings.txt} .
+/scripts/

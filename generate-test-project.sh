@@ -5,6 +5,11 @@ set -e
 
 PROJECT=MyBluezoneTest
 
+# Single source of truth for the blue-zone tooling. It is copied into the
+# generated project rather than duplicated in version control.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SETUP_SRC="$REPO_ROOT/claude-docker"
+
 # 1. Scaffold RN project structure
 mkdir -p "$PROJECT"/{src/{api,services,utils,components,screens,types},ios/{"$PROJECT","$PROJECT".xcodeproj},android/{app/src/main,gradle/wrapper}}
 
@@ -419,9 +424,29 @@ echo "storePassword=my-secret-store-pw" > android/keystore.properties
 echo '{ "project_id": "myapp", "api_key": "fake" }' > android/app/google-services.json
 echo "FAKEKEYSTORE" > android/app/release.jks
 
-# 5. Copy blue zone docker setup into project
-# TODO: replace placeholder path once claude-docker-setup is provided
-# cp -r /path/to/claude-docker-setup/* .
+# 5. Copy blue zone docker setup into project (materialized from claude-docker/).
+# These files are NOT hand-maintained per project — they are the single source
+# of truth in claude-docker/, copied in here so the project is self-contained.
+# scripts/ sources ../blue-zone.config.sh, which in turn reads
+# blue-zone-insecure-strings.txt from the same directory, so all three must
+# land together at the project root. proxy/ + Dockerfile + docker-compose.yml
+# complete the runnable docker setup.
+TOOLING=(
+  scripts
+  blue-zone.config.sh
+  blue-zone-insecure-strings.txt
+  proxy
+  Dockerfile
+  docker-compose.yml
+)
+if [ -d "$SETUP_SRC" ]; then
+  for item in "${TOOLING[@]}"; do
+    cp -R "$SETUP_SRC/$item" .
+  done
+  echo "  Copied blue-zone tooling from $SETUP_SRC"
+else
+  echo "  WARNING: $SETUP_SRC not found - skipped copying blue-zone tooling"
+fi
 
 echo ""
 echo "✓ $PROJECT scaffolded successfully"

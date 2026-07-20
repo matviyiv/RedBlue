@@ -82,6 +82,27 @@ password=
 - `validate-blue-zone.sh` re-scans the staged zone and **fails** if any
   denylisted string slipped through, so the guarantee is checked, not assumed.
 
+### Reviewed exceptions (`fine-for-claude`)
+
+Sometimes a match is intentional — a `password=` example in a comment, a fixture
+token, a documented sample. Rather than loosen the denylist for everyone, mark
+the specific line with the **allow marker** and it stays in the blue zone:
+
+```ts
+const sample = "password=hunter2"; // fine-for-claude
+const url    = "http://192.168.1.10:3000"; // fine-for-claude
+```
+
+A line carrying the marker is exempt from **both** the content denylist (its
+file is not dropped) **and** the hardcoded-secret scan (it is not flagged). The
+exemption is **per line** — an unmarked secret elsewhere in the same file is
+still removed/flagged, so the marker can't be used to wave a whole file through.
+
+- Configure the marker via `BLUE_ZONE_ALLOW_MARKER` in `blue-zone.config.sh`
+  (default `fine-for-claude`). Matching is case-insensitive substring.
+- Set `BLUE_ZONE_ALLOW_MARKER=""` to disable the mechanism entirely — nothing
+  is ever exempted.
+
 ## Blue Zone Contents
 
 With the default `BLUE_ZONE_FOLDERS=(src ios android)`:

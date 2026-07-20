@@ -133,6 +133,24 @@ PATTERNS
 BLUE_ZONE_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BLUE_ZONE_DENYLIST_FILE="${BLUE_ZONE_DENYLIST_FILE:-$BLUE_ZONE_CONFIG_DIR/blue-zone-insecure-strings.txt}"
 
+# ── Allow marker (reviewed exceptions) ───────────────────────────────────────
+# A line that contains this marker is treated as an intentional, human-reviewed
+# exception: it is exempt from BOTH the content denylist (the file is not
+# dropped on account of that line) AND the hardcoded-secret scan (the line is
+# not reported as a violation). Use it to keep deliberate strings such as a
+# `password=` example or a fixture token in the blue zone, e.g.:
+#
+#     const sample = "password=hunter2"; // fine-for-claude
+#     endpoint: "https://192.168.1.10"   # fine-for-claude
+#
+# The exemption is per-LINE, not per-file: only occurrences on a marked line
+# are allowed through, so an unmarked secret elsewhere in the same file is still
+# caught. Matching is case-insensitive, fixed-string (substring). Set to empty
+# to disable the allow mechanism entirely (nothing is ever exempted). Uses a
+# single-dash default so an explicit empty value really disables it; only an
+# unset variable falls back to the default marker.
+BLUE_ZONE_ALLOW_MARKER="${BLUE_ZONE_ALLOW_MARKER-fine-for-claude}"
+
 # ── Derived helpers (do not usually need editing) ────────────────────────────
 
 # Root of the staged blue zone on the host. Only the folders in
@@ -178,4 +196,25 @@ blue_zone_all_patterns_for() {
 blue_zone_denylist_strings() {
   [ -f "$BLUE_ZONE_DENYLIST_FILE" ] || return 0
   grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$BLUE_ZONE_DENYLIST_FILE" || true
+}
+
+# Filter for stdin: drop any line carrying the allow marker, pass the rest
+# through unchanged. When no marker is configured every line passes through.
+# Used by the secret scan to discount reviewed exceptions before deciding
+# whether a pattern really leaked.
+blue_zone_strip_allow_marked() {
+  if [ -n "${BLUE_ZONE_ALLOW_MARKER:-}" ]; then
+    grep -viF -- "$BLUE_ZONE_ALLOW_MARKER" || true
+  else
+    cat
+  fi
+}
+
+# Emit the lines of <file> that contain a denylist string (from <pattern_file>)
+# but are NOT annotated with the allow marker. Empty output means every hit in
+# the file is a reviewed exception, so the file may stay in the blue zone.
+# Usage: blue_zone_unmarked_denylist_hits <pattern_file> <file>
+blue_zone_unmarked_denylist_hits() {
+  local pattern_file="$1" file="$2"
+  grep -aiFf "$pattern_file" -- "$file" 2>/dev/null | blue_zone_strip_allow_marked
 }

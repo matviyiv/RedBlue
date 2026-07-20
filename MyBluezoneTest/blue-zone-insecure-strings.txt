@@ -1,0 +1,26 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# blue-zone-insecure-strings.txt — content denylist for the blue zone.
+#
+# Any staged blue-zone file whose CONTENT contains one of the strings below is
+# dropped before the blue zone is mounted, so it never reaches the container.
+# This complements the filename-based exclusions in blue-zone.config.sh: use it
+# to catch secrets/insecure markers that live INSIDE otherwise-innocuous files.
+#
+# Format:
+#   • one string per line
+#   • '#' comments and blank lines are ignored
+#   • matching is case-insensitive and substring (fixed string, not regex)
+#
+# This shipped file is a template: every entry below is commented out, so by
+# default nothing is removed by content. Uncomment or add your own strings.
+#
+# Examples (uncomment / adapt to your project):
+# BEGIN RSA PRIVATE KEY
+# PRIVATE KEY
+# AKIA
+# xoxb-
+# password=
+# secret=
+# api.internal.
+# 192.168.
+# 10.0.0.

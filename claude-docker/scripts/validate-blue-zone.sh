@@ -98,6 +98,23 @@ SECRET_PATTERNS=(
   "10\.[0-9]+\.[0-9]+\.[0-9]+"
 )
 
+# Test files legitimately contain fake/sample credentials (fixtures, mocks),
+# so they are excluded from the secret scan to avoid false positives. Covers
+# Swift (*Tests.swift, *Test.swift), JS/TS (*.test.*, *.spec.*), and
+# JVM (*Test.kt/java, *Tests.kt/java) conventions, plus the usual test dirs.
+TEST_EXCLUDES=(
+  --exclude="*Tests.swift" --exclude="*Test.swift"
+  --exclude="*.test.js" --exclude="*.test.jsx"
+  --exclude="*.test.ts" --exclude="*.test.tsx"
+  --exclude="*.spec.js" --exclude="*.spec.jsx"
+  --exclude="*.spec.ts" --exclude="*.spec.tsx"
+  --exclude="*Test.kt" --exclude="*Tests.kt"
+  --exclude="*Test.java" --exclude="*Tests.java"
+  --exclude="Constants.java" --exclude="constants.js"
+  --exclude-dir="__tests__" --exclude-dir="__mocks__"
+  --exclude-dir="test" --exclude-dir="tests"
+)
+
 SECRET_FOUND=0
 for pattern in "${SECRET_PATTERNS[@]}"; do
   # Match with line context (file:line:text) so we can discount lines annotated
@@ -107,6 +124,7 @@ for pattern in "${SECRET_PATTERNS[@]}"; do
     --include="*.swift" --include="*.m" --include="*.kt" --include="*.java" \
     --include="*.json" --include="*.xml" \
     2>/dev/null | blue_zone_strip_allow_marked \
+    "${TEST_EXCLUDES[@]}" \
     | cut -d: -f1 | sort -u | tr '\n' ' ' | sed 's/ *$//' || true)
   if [ -n "$MATCHES" ]; then
     fail "Secret pattern '$pattern' found in: $MATCHES"

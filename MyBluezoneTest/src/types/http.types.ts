@@ -1,7 +1,7 @@
 // http.types.ts — Blue zone contract for the HTTP client layer
 // Contains: generic response envelopes, pagination, error shapes
 // Does NOT contain: base URLs, auth headers, axios configuration
-// Implementation lives in src/utils/httpClient.ts (red zone — not visible in this workspace)
+// Implementation lives in src/utils/httpClient.ts (red zone — not visible in workspace)
 
 export interface ApiResponse<T> {
   data: T;
@@ -27,7 +27,6 @@ export interface ApiErrorResponse {
 // The pre-configured HTTP client instance shape.
 // The real client (with baseURL from env) is in src/utils/httpClient.ts (red zone).
 // Import as: import { http } from '../utils/httpClient';
-// Usage:     http.get<ApiResponse<MyType>>('/path')
 export interface HttpClientInstance {
   get<T>(path: string, params?: Record<string, unknown>): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;

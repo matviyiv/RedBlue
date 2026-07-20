@@ -80,19 +80,36 @@ exists on the host without being able to see the content.
 
 ## Repository Layout
 
+The reusable tooling lives in **`claude-docker/`** — the single source of truth.
+You copy it into your own project (or let `generate-test-project.sh` do it for
+the example project). Nothing is hand-maintained in two places.
+
 ```
 RedBlue/
-├── generate-test-project.sh        # Scaffold a realistic test RN project
+├── claude-docker/                  # ← The tool (single source of truth)
+│   ├── .claude/CLAUDE.md           # Template rules: what Claude can/cannot do
+│   ├── blue-zone.config.sh         # Which folders are blue zone + exclusion rules
+│   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
+│   ├── scripts/
+│   │   ├── init.sh                 # One-time setup (prerequisites + Docker build)
+│   │   ├── prepare-blue-zone.sh    # rsync filter → /tmp/blue-zone/
+│   │   ├── validate-blue-zone.sh   # Secret leak scanner (run before Docker)
+│   │   ├── start-cli.sh            # Interactive Claude session (local dev)
+│   │   ├── run-headless.sh         # Single-prompt headless run (CI)
+│   │   └── sync-back.sh            # Copy Claude's changes back into the repo
+│   ├── proxy/                      # Egress allowlist proxy (interactive sessions)
+│   │   ├── Dockerfile              #   tinyproxy on alpine
+│   │   ├── tinyproxy.conf          #   default-deny forward proxy
+│   │   └── filter                  #   allowlist: Anthropic + GitHub domains
+│   ├── Dockerfile                  # node:22-alpine + Claude Code CLI, non-root user
+│   ├── docker-compose.yml          # Network isolation, resource caps
+│   └── .gitlab-ci.yml              # Full pipeline: build → validate → review
 │
-└── MyBluezoneTest/                 # Example project with the full setup
-    ├── .claude/
-    │   └── CLAUDE.md               # Claude's rules: what it can/cannot do
-    ├── scripts/
-    │   ├── init.sh                 # One-time setup (prerequisites + Docker build)
-    │   ├── prepare-blue-zone.sh    # rsync filter → /tmp/blue-zone/
-    │   ├── validate-blue-zone.sh   # Secret leak scanner (run before Docker)
-    │   ├── start-cli.sh            # Interactive Claude session (local dev)
-    │   └── run-headless.sh         # Single-prompt headless run (CI)
+├── generate-test-project.sh        # Scaffold a realistic test RN project AND
+│                                   #   copy the claude-docker tooling into it
+│
+└── MyBluezoneTest/                 # Example RN project (blue + red zone files)
+    ├── .claude/CLAUDE.md           # Project-specific Claude rules
     ├── src/
     │   ├── types/                  # ← Blue zone API contracts (interfaces only)
     │   │   ├── auth.types.ts       #   IAuthApi, LoginRequest, LoginResponse
@@ -102,13 +119,8 @@ RedBlue/
     │   ├── api/                    # RED — stripped by prepare-blue-zone.sh
     │   ├── services/               # RED — stripped
     │   └── utils/httpClient.ts     # RED — stripped
-    ├── proxy/                      # Egress allowlist proxy (interactive sessions)
-    │   ├── Dockerfile              #   tinyproxy on alpine
-    │   ├── tinyproxy.conf          #   default-deny forward proxy
-    │   └── filter                  #   allowlist: Anthropic + GitHub domains
-    ├── Dockerfile                  # node:22-alpine + Claude Code CLI, non-root user
-    ├── docker-compose.yml          # Blue zone mounts, network isolation, 512 MB cap
-    └── .gitlab-ci.yml              # Full pipeline: build → validate → review
+    └── scripts/, proxy/, …         # Tooling copied in from claude-docker/
+                                    #   (git-ignored — materialized, not source)
 ```
 
 ---
@@ -122,10 +134,10 @@ RedBlue/
 
 2. validate-blue-zone.sh
    scan /tmp/blue-zone/ for:
-   • API/service/client file leaks
-   • iOS/Android signing artifacts
-   • Hardcoded secrets (regex patterns)
-   • .env files
+   • configured red-zone patterns that leaked (API/service, signing artifacts)
+   • hardcoded secrets (regex patterns; test files excluded)
+   • .env files and non-placeholder .env.example values
+   • content-denylist strings
    exit 1 if any violation found
 
 3. docker compose run claude-code
@@ -154,13 +166,23 @@ RedBlue/
 
 ### 1. Copy the docker setup into your RN project root
 
+The tooling lives in `claude-docker/` — the single source of truth. Copy it into
+your project root:
+
 ```bash
-cp -r MyBluezoneTest/.claude       your-project/
-cp -r MyBluezoneTest/scripts/      your-project/
-cp -r MyBluezoneTest/proxy/        your-project/   # egress allowlist proxy
-cp    MyBluezoneTest/Dockerfile    your-project/
-cp    MyBluezoneTest/docker-compose.yml your-project/
+cp -R claude-docker/.claude                        your-project/   # customise CLAUDE.md after
+cp -R claude-docker/scripts                         your-project/
+cp -R claude-docker/proxy                           your-project/   # egress allowlist proxy
+cp    claude-docker/blue-zone.config.sh             your-project/   # which folders are blue zone
+cp    claude-docker/blue-zone-insecure-strings.txt  your-project/   # content denylist
+cp    claude-docker/Dockerfile                       your-project/
+cp    claude-docker/docker-compose.yml               your-project/
 ```
+
+`scripts/` reads `blue-zone.config.sh` from the project root, and that reads
+`blue-zone-insecure-strings.txt` next to it — so keep all three together. When a
+new version of the tooling lands in `claude-docker/`, re-run the same copy to
+update; there is no per-project fork to reconcile.
 
 ### 2. Add your API contracts to `src/types/`
 
@@ -217,35 +239,53 @@ export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # b) `claude setup-token` (Pro/Max
 ./scripts/validate-blue-zone.sh --strict
 ```
 
-All 6 checks must pass before Docker starts:
+All checks must pass before Docker starts:
 
 | Check | What it looks for |
 |-------|------------------|
-| 1 | API / service / client files in `src/` |
-| 2 | iOS signing artifacts (`.p12`, `.mobileprovision`, `GoogleService-Info.plist`) |
-| 3 | Android signing artifacts (`.jks`, `google-services.json`, `keystore.properties`) |
-| 4 | Hardcoded secrets (regex: `password=`, `api_key=`, `sk-ant-`, AWS key patterns) |
-| 5 | `.env` files anywhere in the blue zone |
-| 6 | `.env.example` has no real values |
+| 1 | Any configured red-zone pattern (from `blue-zone.config.sh`) that leaked into a blue-zone folder — API/service files, iOS/Android signing artifacts, etc. |
+| 2 | Hardcoded secrets (regex: `password=`, `api_key=`, `sk-ant-`, AWS key patterns). Test files (`*Tests.swift`, `*.test.*`, `*.spec.*`, `__tests__/`, …) are excluded, since fixtures legitimately contain fake credentials. |
+| 3 | `.env` files anywhere in the blue zone |
+| 4 | `.env.example` has no real values |
+| 5 | Content-denylist strings (from `blue-zone-insecure-strings.txt`) that survived into the blue zone |
 
 ---
 
 ## Customising the Red Zone
 
-Edit the `sync_zone` calls in `scripts/prepare-blue-zone.sh` to match your
-project's naming conventions:
+All of it is driven by `blue-zone.config.sh` — you never edit the scripts. Set
+which top-level folders are blue zone, and the per-folder red-zone patterns
+stripped out of each:
 
 ```bash
-# Add exclusions for your own patterns
-sync_zone "./src" "$BLUE_ZONE_ROOT/src" "src" \
-  --exclude="*-api.ts"      \   # auth-api.ts, payments-api.ts …
-  --exclude="*Api.ts"       \   # AuthApi.ts, PaymentsApi.ts …
-  --exclude="*Service.ts"   \   # UserService.ts, JitsiService.ts …
-  --exclude="*Client.ts"    \   # HttpClient.ts, GraphQLClient.ts …
-  --exclude="api/"          \   # entire api/ directory
-  --exclude="services/"     \   # entire services/ directory
-  --exclude="*.graphql"         # GraphQL query files
+# blue-zone.config.sh
+
+# Which folders get copied into the blue zone (change for non-RN projects):
+BLUE_ZONE_FOLDERS=(src ios android)
+
+# Excludes applied to every folder:
+BLUE_ZONE_COMMON_EXCLUDES=(".env*" "node_modules/")
+
+# Per-folder red-zone patterns — add your own naming conventions here:
+blue_zone_excludes_for() {
+  case "$1" in
+    src)
+      cat <<'PATTERNS'
+*-api.ts        # auth-api.ts, payments-api.ts …
+*Service.ts     # UserService.ts, JitsiService.ts …
+*Client.ts      # HttpClient.ts, GraphQLClient.ts …
+api/            # entire api/ directory
+services/       # entire services/ directory
+*.graphql       # GraphQL query files
+PATTERNS
+      ;;
+  esac
+}
 ```
+
+`validate-blue-zone.sh` reads the same config, so every pattern you add here is
+automatically re-checked after staging — no second list to keep in sync.
+Strings that must never appear anywhere go in `blue-zone-insecure-strings.txt`.
 
 ---
 
@@ -284,12 +324,16 @@ Claude Pro/Max subscription — no API key needed).
 ## Testing the Setup
 
 `generate-test-project.sh` scaffolds a complete test project with realistic red
-and blue zone files so you can verify the pipeline end-to-end without using your
-real codebase:
+and blue zone files — and copies the `claude-docker/` tooling into it — so you
+can verify the pipeline end-to-end without using your real codebase:
 
 ```bash
-bash generate-test-project.sh
+bash generate-test-project.sh    # scaffolds MyBluezoneTest/ + copies tooling in
 cd MyBluezoneTest
 ./scripts/prepare-blue-zone.sh   # should show red zone exclusions
-./scripts/validate-blue-zone.sh  # should pass all 6 checks
+./scripts/validate-blue-zone.sh  # should pass all checks
 ```
+
+Because the tooling is copied from `claude-docker/` on every run, the generated
+project always reflects the current scripts — there is no stale duplicate to
+drift out of sync.

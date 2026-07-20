@@ -11,6 +11,7 @@
 (^|\.)anthropic\.com$
 (^|\.)claude\.ai$
 (^|\.)claude\.com$
+platform\.claude\.com$
 
 # GitHub — web/API (github.com, api.github.com, codeload.github.com) and file
 # content / release assets (raw.githubusercontent.com, objects.github...).

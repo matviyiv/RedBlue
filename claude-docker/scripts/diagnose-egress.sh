@@ -29,9 +29,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 # Hosts to probe: the ones Claude Code needs, plus a couple that MUST be blocked
-# (example.com, a LAN address) as negative controls. Extra args are appended.
+# (example.com) as a negative control. Extra args are appended.
+# Note: only real, resolvable hosts belong here. A non-existent name (e.g.
+# statsig.anthropic.com, which is NXDOMAIN) fails with a proxy 500 that is a
+# DNS miss, NOT an allowlist block — probing it just adds noise.
 HOSTS=(platform.claude.com api.anthropic.com console.anthropic.com \
-       statsig.anthropic.com claude.ai github.com \
+       claude.ai github.com \
        example.com "$@")
 
 echo -e "${BOLD}${CYAN}Egress proxy diagnostics${RESET}\n"
@@ -49,17 +52,24 @@ docker compose exec -T egress-proxy \
   | sed 's/^/  /'
 
 # ── 3. Probe each host THROUGH the proxy, with the CLI's proxy env ───────────
-# Any HTTP status = the CONNECT tunnel was allowed (server answered). A curl
-# error / 000 = the proxy refused the tunnel (filtered) and closed the socket —
-# exactly what surfaces in Claude Code as ERR_SOCKET_CLOSED.
-echo -e "\n${BOLD}[3/4] Probing hosts through the proxy (ALLOW = tunnel opened):${RESET}"
+# Three distinct outcomes — do NOT lump them together:
+#   ALLOW   any HTTP status from the server → tunnel opened (host is permitted)
+#   BLOCKED proxy returned 403 on CONNECT   → the allowlist denied the host
+#   DNS/NET proxy returned 5xx on CONNECT   → host IS allowed but unreachable /
+#           doesn't resolve (e.g. a non-existent name). NOT an allowlist problem.
+echo -e "\n${BOLD}[3/4] Probing hosts through the proxy:${RESET}"
 docker compose run --rm --no-deps --entrypoint sh claude-cli -c '
   for h in '"${HOSTS[*]}"'; do
     code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 8 "https://$h/" 2>/tmp/err) || code="ERR"
-    if [ "$code" = "ERR" ] || [ "$code" = "000" ]; then
-      printf "  \033[0;31mBLOCKED\033[0m %-26s %s\n" "$h" "$(tr "\n" " " </tmp/err | tail -c 90)"
-    else
+    err=$(tr "\n" " " </tmp/err | tail -c 100)
+    if [ "$code" != "ERR" ] && [ "$code" != "000" ]; then
       printf "  \033[0;32mALLOW  \033[0m %-26s HTTP %s\n" "$h" "$code"
+    else
+      case "$err" in
+        *"403"*)                       printf "  \033[0;31mBLOCKED\033[0m %-26s allowlist denied (403): %s\n" "$h" "$err" ;;
+        *"5"[0-9][0-9]*|*"tunnel failed"*) printf "  \033[0;33mDNS/NET\033[0m %-26s allowed, but unreachable/unresolved: %s\n" "$h" "$err" ;;
+        *)                             printf "  \033[0;33m?FAIL  \033[0m %-26s %s\n" "$h" "$err" ;;
+      esac
     fi
   done
 '
@@ -76,7 +86,10 @@ echo ""
 echo -e "${BOLD}Reading the result:${RESET}"
 echo -e "  • ${GREEN}platform.claude.com = ALLOW${RESET}, but Claude still fails → likely an"
 echo -e "    account/region issue, not the proxy (see the supported-countries link)."
-echo -e "  • ${RED}platform.claude.com = BLOCKED${RESET} → the allowlist in step [2] is missing"
-echo -e "    'claude.com'. Update proxy/filter and re-run this script."
+echo -e "  • ${RED}platform.claude.com = BLOCKED${RESET} (403) → the allowlist in step [2] is"
+echo -e "    missing 'claude.com'. Add it to proxy/filter and re-run this script."
+echo -e "  • ${YELLOW}host = DNS/NET${RESET} (5xx) → the allowlist already permits it; it just"
+echo -e "    doesn't resolve or isn't reachable. An allowlist change won't help, and"
+echo -e "    for telemetry hosts (statsig.*) it's harmless — Claude works without them."
 echo -e "  • ${RED}example.com = ALLOW${RESET} → the filter isn't being applied at all"
 echo -e "    (check FilterDefaultDeny / that proxy/filter is mounted)."

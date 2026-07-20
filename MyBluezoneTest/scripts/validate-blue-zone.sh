@@ -148,6 +148,7 @@ TEST_EXCLUDES=(
   --exclude="*.spec.ts" --exclude="*.spec.tsx"
   --exclude="*Test.kt" --exclude="*Tests.kt"
   --exclude="*Test.java" --exclude="*Tests.java"
+  --exclude="Constants.java" --exclude="constants.js"
   --exclude-dir="__tests__" --exclude-dir="__mocks__"
   --exclude-dir="test" --exclude-dir="tests"
 )

@@ -132,6 +132,8 @@ sync_zone "./android" "$BLUE_ZONE_ROOT/android" "android" \
   --exclude="*.apk"                     \
   --exclude="*.aab"                     \
   --exclude="*.so"                      \
+  --exclude="AndroidManifest.xml"       \
+  --exclude="network_security_config.xml" \
   --exclude="*.aar"                     \
   --exclude=".env*"
 

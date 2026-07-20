@@ -28,7 +28,11 @@ RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
 
-BLUE_ZONE_ROOT="/tmp/blue-zone"
+# Load the shared folder config (defines BLUE_ZONE_FOLDERS, BLUE_ZONE_ROOT).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../blue-zone.config.sh
+source "$SCRIPT_DIR/../blue-zone.config.sh"
+
 SNAPSHOT="$BLUE_ZONE_ROOT/.blue-zone-snapshot"
 
 DRY_RUN=0
@@ -56,6 +60,12 @@ BLOCKED=0
 DELETED=0
 
 # ── New + modified files ──────────────────────────────────────────────────────
+# Iterate every configured blue-zone folder (see blue-zone.config.sh).
+BLUE_ZONE_DIRS=()
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  BLUE_ZONE_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+done
+
 while IFS= read -r -d '' f; do
   rel="${f#"$BLUE_ZONE_ROOT"/}"
 
@@ -85,8 +95,7 @@ while IFS= read -r -d '' f; do
       ADDED=$((ADDED + 1))
     fi
   fi
-done < <(find "$BLUE_ZONE_ROOT/src" "$BLUE_ZONE_ROOT/ios" "$BLUE_ZONE_ROOT/android" \
-           -type f -print0 2>/dev/null)
+done < <(find "${BLUE_ZONE_DIRS[@]}" -type f -print0 2>/dev/null)
 
 # ── Deletions ─────────────────────────────────────────────────────────────────
 # A snapshotted file (blue zone at prepare time) that Claude removed during the

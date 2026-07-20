@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# blue-zone.config.sh — Single source of truth for the blue zone layout.
+#
+# This is the ONE file you edit to adapt the blue zone to your project. It is
+# sourced by every script (prepare / validate / sync-back / start-cli /
+# run-headless / init), so the folder list and exclusion rules live in exactly
+# one place instead of being duplicated across each script and docker-compose.
+#
+# To change which top-level folders are mounted into the container, edit
+# BLUE_ZONE_FOLDERS below. To change what gets stripped out of a folder, edit
+# BLUE_ZONE_COMMON_EXCLUDES (applies to every folder) or the per-folder rules in
+# blue_zone_excludes_for().
+#
+# Kept POSIX-bash-3.2 compatible (macOS default) — no associative arrays or
+# name-refs.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Top-level folders copied into the blue zone ──────────────────────────────
+# These are the ONLY directories mounted into the container, each at
+# /workspace/<folder>. List whatever top-level folders your project keeps its
+# reviewable source in. A folder that doesn't exist in the repo is skipped with
+# a warning — so it's safe to list folders that only some projects have.
+#
+# Examples for other stacks:
+#   BLUE_ZONE_FOLDERS=(src test docs)                 # a plain library
+#   BLUE_ZONE_FOLDERS=(app lib spec)                  # a Rails app
+#   BLUE_ZONE_FOLDERS=(cmd internal pkg)              # a Go service
+BLUE_ZONE_FOLDERS=(src ios android)
+
+# ── Exclusions applied to EVERY folder ───────────────────────────────────────
+# rsync --exclude patterns stripped from every folder before it is staged.
+# Keep secrets and installed dependencies out no matter which folder they're in.
+BLUE_ZONE_COMMON_EXCLUDES=(
+  ".env*"
+  "node_modules/"
+)
+
+# ── Per-folder exclusions ────────────────────────────────────────────────────
+# Echo one rsync --exclude pattern per line for the given folder name. Folders
+# with no special rules fall through the case and inherit only the common
+# excludes above. Add a new `case` arm when you add a folder that needs its own
+# red-zone rules.
+blue_zone_excludes_for() {
+  case "$1" in
+    src)
+      # JS/TS app code — strip API/service/client implementation files that
+      # carry endpoints and server details. Contracts live in src/types/.
+      cat <<'PATTERNS'
+*-api.ts
+*-api.js
+*Api.ts
+*Api.js
+*Service.ts
+*Service.js
+*Client.ts
+*Client.js
+*client.ts
+*client.js
+api/
+services/
+*.graphql
+*.gql
+PATTERNS
+      ;;
+    ios)
+      # Swift/ObjC source only — strip signing material, secret build config,
+      # Firebase config, pods and build artifacts.
+      cat <<'PATTERNS'
+*.p12
+*.cer
+*.mobileprovision
+*.provisionprofile
+GoogleService-Info.plist
+**/GoogleService-Info.plist
+*.xcconfig
+Pods/
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+PATTERNS
+      ;;
+    android)
+      # Kotlin/Java source only — strip signing keys, Firebase config, local
+      # build properties, gradle cache and build artifacts.
+      cat <<'PATTERNS'
+*.jks
+*.keystore
+google-services.json
+**/google-services.json
+release.properties
+keystore.properties
+signing.properties
+.gradle/
+build/
+**/build/
+.idea/
+local.properties
+gradle.properties
+*.apk
+*.aab
+*.so
+*.aar
+PATTERNS
+      ;;
+    *)
+      # No folder-specific rules — common excludes still apply.
+      : ;;
+  esac
+}
+
+# ── Content denylist ─────────────────────────────────────────────────────────
+# In addition to the filename exclusions above, any staged file whose CONTENT
+# contains one of these forbidden strings is dropped from the blue zone before
+# it is mounted — so it never reaches the container. Provide the strings in a
+# separate plain-text file, one per line (`#` comments and blank lines ignored).
+# Matching is case-insensitive, fixed-string (substring), and applied to every
+# file in every configured folder.
+#
+# Point this at your own list; the shipped blue-zone-insecure-strings.txt is a
+# commented template that removes nothing until you add entries.
+BLUE_ZONE_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BLUE_ZONE_DENYLIST_FILE="${BLUE_ZONE_DENYLIST_FILE:-$BLUE_ZONE_CONFIG_DIR/blue-zone-insecure-strings.txt}"
+
+# ── Derived helpers (do not usually need editing) ────────────────────────────
+
+# Root of the staged blue zone on the host. Only the folders in
+# BLUE_ZONE_FOLDERS are mounted from here into the container; everything else
+# under this root (the snapshot, generated compose file) stays host-side.
+BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone}"
+
+# Generated compose file holding the per-folder mounts. prepare-blue-zone.sh
+# writes it; start-cli.sh / run-headless.sh layer it on top of the base
+# docker-compose.yml via COMPOSE_FILE. Regenerated every prepare run.
+BLUE_ZONE_COMPOSE_FILE="${BLUE_ZONE_COMPOSE_FILE:-docker-compose.blue-zone.yml}"
+
+# Build the rsync --exclude argument array for a folder into the named array.
+# Usage: blue_zone_build_excludes <folder> <out_array_name>
+# (bash 3.2 compatible — writes into the caller's array via eval, no name-refs.)
+blue_zone_build_excludes() {
+  local folder="$1" outname="$2" p
+  eval "$outname=()"
+  for p in "${BLUE_ZONE_COMMON_EXCLUDES[@]}"; do
+    eval "$outname+=(--exclude=\"\$p\")"
+  done
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    eval "$outname+=(--exclude=\"\$p\")"
+  done < <(blue_zone_excludes_for "$folder")
+}
+
+# Emit every exclusion pattern (common + folder-specific) for a folder, one per
+# line, with no --exclude prefix. Used by validate-blue-zone.sh to confirm none
+# of them leaked into the staged copy.
+blue_zone_all_patterns_for() {
+  local p
+  for p in "${BLUE_ZONE_COMMON_EXCLUDES[@]}"; do
+    printf '%s\n' "$p"
+  done
+  blue_zone_excludes_for "$1"
+}
+
+# Emit the active content-denylist strings (comments + blank lines stripped),
+# one per line. Empty output means no content filtering is configured. Used by
+# both prepare-blue-zone.sh (to drop matching files) and validate-blue-zone.sh
+# (to confirm none survived).
+blue_zone_denylist_strings() {
+  [ -f "$BLUE_ZONE_DENYLIST_FILE" ] || return 0
+  grep -vE '^[[:space:]]*#|^[[:space:]]*$' "$BLUE_ZONE_DENYLIST_FILE" || true
+}

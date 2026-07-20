@@ -1,7 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Blue zone mounts (writable, pre-filtered by prepare-blue-zone.sh; changes land
 # in /tmp/blue-zone on the host — sync-back.sh copies back what you keep, the
-# next prepare run wipes it):
+# next prepare run wipes it).
+#
+# The actual per-folder mounts are NOT listed here — they are generated from
+# blue-zone.config.sh into docker-compose.blue-zone.yml by prepare-blue-zone.sh,
+# and layered on via COMPOSE_FILE by start-cli.sh / run-headless.sh. Edit
+# blue-zone.config.sh (BLUE_ZONE_FOLDERS) to change which top-level folders are
+# mounted — you do not touch this file. With the default config the generated
+# mounts are:
 #     /tmp/blue-zone/src     -> /workspace/src
 #     /tmp/blue-zone/ios     -> /workspace/ios
 #     /tmp/blue-zone/android -> /workspace/android
@@ -26,14 +33,15 @@ x-claude-common: &claude-common
   build:
     context: .
     dockerfile: Dockerfile
-    platforms:
-      - linux/amd64
+  # Build/run for the host's native architecture by default (empty = unset), so
+  # Apple Silicon (arm64) machines don't hit the "platform (linux/amd64) does
+  # not match the detected host platform (linux/arm64)" mismatch and slow QEMU
+  # emulation. Pin a specific arch when you need it: CLAUDE_PLATFORM=linux/amd64.
+  platform: ${CLAUDE_PLATFORM:-}
   image: claude-code:latest
   volumes:
-    # Blue zone - pre-filtered copies (writable so Claude can create/edit files)
-    - /tmp/blue-zone/src:/workspace/src
-    - /tmp/blue-zone/ios:/workspace/ios
-    - /tmp/blue-zone/android:/workspace/android
+    # Blue zone - pre-filtered per-folder copies are added by the generated
+    # docker-compose.blue-zone.yml overlay (from blue-zone.config.sh), not here.
 
     # Config files
     - ./package.json:/workspace/package.json:ro

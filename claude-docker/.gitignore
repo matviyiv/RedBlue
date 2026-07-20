@@ -2,3 +2,4 @@
 # run, never committed. Holds the per-folder blue-zone volume mounts layered on
 # top of docker-compose.yml.
 docker-compose.blue-zone.yml
+.DS_Store

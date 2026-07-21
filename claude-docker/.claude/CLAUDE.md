@@ -77,6 +77,19 @@ The following are red zone and do not exist in your workspace:
 If you need to understand how data is fetched, reference only
 TypeScript interface/type definitions in `src/types/` instead.
 
+## Blue zone manifest (`/workspace/BLUE_ZONE_MANIFEST.md`)
+
+An auto-generated, read-only inventory lives at `/workspace/BLUE_ZONE_MANIFEST.md`.
+It lists every file that was **stripped** from the project before this workspace
+was mounted — the files that exist on the host but are deliberately absent here
+(red zone) — plus the rules that removed them.
+
+Treat it as authoritative:
+- Use it to learn the true shape of the project: know that these files exist so
+  you code against their contracts and do not recreate them.
+- If a file appears there, it is red zone — do **not** ask for its contents.
+- It is regenerated on every run and mounted read-only, so do not edit it.
+
 ## Code Style
 - TypeScript strict mode
 - Functional components + hooks only (no class components)

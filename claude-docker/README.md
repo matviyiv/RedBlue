@@ -30,6 +30,22 @@ Sync-back safety rules (enforced via a snapshot taken at prepare time):
   the blue zone at prepare time — red-zone paths are never in the snapshot, so
   they can never be deleted by sync-back.
 
+## Blue zone manifest
+
+`prepare-blue-zone.sh` writes a **`BLUE_ZONE_MANIFEST.md`** at the blue zone root
+and mounts it **read-only** into the container at `/workspace/BLUE_ZONE_MANIFEST.md`.
+It is a Claude-readable record of what was **stripped** — the files that exist on
+the host but are deliberately absent from the workspace (red zone) — together
+with the filename rules and content denylist that removed them.
+
+Its purpose is to give Claude the true shape of the project without leaking any
+red-zone *contents*: Claude can see that, say, `src/api/auth-api.ts` exists (so it
+codes against the contract in `src/types/` instead of recreating the file) while
+never being able to read it. Because it lives at the blue zone root — not inside a
+mounted folder — `sync-back.sh` never copies it back into the repo, and the
+read-only mount means Claude cannot alter it. Change the filename via
+`BLUE_ZONE_MANIFEST_FILE` in `blue-zone.config.sh`.
+
 ## Configuring blue-zone folders
 
 Which top-level folders are staged into the blue zone — and what gets stripped

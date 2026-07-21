@@ -165,6 +165,15 @@ BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone}"
 # docker-compose.yml via COMPOSE_FILE. Regenerated every prepare run.
 BLUE_ZONE_COMPOSE_FILE="${BLUE_ZONE_COMPOSE_FILE:-docker-compose.blue-zone.yml}"
 
+# Blue zone manifest — a Claude-readable inventory that prepare-blue-zone.sh
+# writes at the blue zone root and mounts read-only into the container at
+# /workspace/<name>. It records which files were STRIPPED (exist on the host but
+# are deliberately absent from the workspace) so Claude knows the true shape of
+# the project without ever seeing red-zone contents. It lives at the root — not
+# inside a mounted folder — so sync-back never carries it back into the repo, and
+# it is mounted read-only so Claude cannot alter it.
+BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
+
 # Build the rsync --exclude argument array for a folder into the named array.
 # Usage: blue_zone_build_excludes <folder> <out_array_name>
 # (bash 3.2 compatible — writes into the caller's array via eval, no name-refs.)

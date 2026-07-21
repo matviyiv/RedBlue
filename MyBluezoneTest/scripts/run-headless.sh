@@ -31,7 +31,7 @@ if [ -z "$PROMPT" ]; then
   exit 1
 fi
 
-# ── Resolve authentication (API key optional) ────────────────────────────────
+# ── Resolve authentication (token optional) ──────────────────────────────────
 source "$(dirname "$0")/auth.sh"
 resolve_auth
 

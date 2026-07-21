@@ -137,7 +137,7 @@ your-rn-project/
 │   └── CLAUDE.md                  <- Claude's scope and constraints
 ├── scripts/
 │   ├── init.sh                    <- One-time setup
-│   ├── auth.sh                    <- Auth resolution (API key / token / login)
+│   ├── auth.sh                    <- Auth resolution (token / login)
 │   ├── prepare-blue-zone.sh       <- rsync filter into /tmp/blue-zone/
 │   ├── validate-blue-zone.sh      <- Secret leak scanner
 │   ├── start-cli.sh               <- Interactive session (local dev)
@@ -154,15 +154,14 @@ your-rn-project/
 
 ## Authentication
 
-An API key is **optional**. Auth is resolved in this order:
+A token is **optional**. Auth is resolved in this order:
 
 | Priority | Method | How |
 |----------|--------|-----|
-| 1 | API key | `export ANTHROPIC_API_KEY=sk-ant-...` |
-| 2 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
-| 3 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
+| 1 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
+| 2 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
 
-Headless runs (`run-headless.sh`, CI) need one of the three already in place;
+Headless runs (`run-headless.sh`, CI) need one of the two already in place;
 interactive sessions can always start and log in on the spot.
 
 ## Persistent Sessions
@@ -187,8 +186,8 @@ To wipe it and start fresh:
 # One-time setup
 ./scripts/init.sh
 
-# Interactive session (local dev) — with an API key...
-export ANTHROPIC_API_KEY=sk-ant-...
+# Interactive session (local dev) — with a subscription token...
+export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
 ./scripts/start-cli.sh
 
 # ...or without one: just start it and log in with /login (persists)
@@ -222,9 +221,8 @@ android/
 
 ## GitLab CI Variables
 
-Set **one** of:
+Set:
 
 | Key | Masked | Protected |
 |-----|--------|-----------|
-| `ANTHROPIC_API_KEY` | Yes | Yes |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Yes |

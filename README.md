@@ -218,9 +218,8 @@ seeing their values.
 
 # Interactive session — opens Claude Code CLI inside the container.
 # Authenticate with ONE of:
-export ANTHROPIC_API_KEY=sk-ant-...           # a) API key
-export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # b) `claude setup-token` (Pro/Max)
-./scripts/start-cli.sh                        # c) no key at all — log in via
+export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # a) `claude setup-token` (Pro/Max)
+./scripts/start-cli.sh                        # b) no token at all — log in via
                                               #    /login once; credentials persist
                                               #    in the claude-home volume
 
@@ -301,9 +300,8 @@ The included `.gitlab-ci.yml` runs three stages on every MR:
 | `review` | `claude-security-review` | Runs Claude with a security audit prompt, fails on high severity |
 | `review` | `claude-code-review` | Runs Claude diff review on MR changes |
 
-Required CI/CD variable (masked + protected), one of: `ANTHROPIC_API_KEY`
-or `CLAUDE_CODE_OAUTH_TOKEN` (generated with `claude setup-token` from a
-Claude Pro/Max subscription — no API key needed).
+Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
+(generated with `claude setup-token` from a Claude Pro/Max subscription).
 
 ---
 

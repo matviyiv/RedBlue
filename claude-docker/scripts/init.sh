@@ -29,31 +29,19 @@ command -v jq >/dev/null 2>&1           || echo -e "${YELLOW}jq not found (optio
 
 echo -e "${GREEN}Prerequisites OK${RESET}"
 
-# ── 2. Check authentication (API key optional) ───────────────────────────────
+# ── 2. Check authentication (token optional) ─────────────────────────────────
 echo -e "\n${BOLD}[2/6] Checking authentication...${RESET}"
 
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  echo -e "${GREEN}ANTHROPIC_API_KEY is set${RESET}"
-elif [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   echo -e "${GREEN}CLAUDE_CODE_OAUTH_TOKEN is set (subscription auth)${RESET}"
 else
-  echo -e "${YELLOW}No ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN set.${RESET}"
-  read -p "  Enter an API key or setup-token now (or press Enter to skip): " -r INPUT_KEY
-  if [ -n "$INPUT_KEY" ]; then
-    case "$INPUT_KEY" in
-      sk-ant-oat*)
-        export CLAUDE_CODE_OAUTH_TOKEN="$INPUT_KEY"
-        echo -e "${GREEN}OAuth token set for this session${RESET}"
-        echo    "  Add to your shell profile to persist:"
-        echo    "  export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat..."
-        ;;
-      *)
-        export ANTHROPIC_API_KEY="$INPUT_KEY"
-        echo -e "${GREEN}API key set for this session${RESET}"
-        echo    "  Add to your shell profile to persist:"
-        echo    "  export ANTHROPIC_API_KEY=sk-ant-..."
-        ;;
-    esac
+  echo -e "${YELLOW}No CLAUDE_CODE_OAUTH_TOKEN set.${RESET}"
+  read -p "  Enter a setup-token now (or press Enter to skip): " -r INPUT_TOKEN
+  if [ -n "$INPUT_TOKEN" ]; then
+    export CLAUDE_CODE_OAUTH_TOKEN="$INPUT_TOKEN"
+    echo -e "${GREEN}OAuth token set for this session${RESET}"
+    echo    "  Add to your shell profile to persist:"
+    echo    "  export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat..."
   else
     echo -e "${YELLOW}Skipped - no problem. Alternative login options:${RESET}"
     echo    "  • Claude Pro/Max subscription: run 'claude setup-token' and"

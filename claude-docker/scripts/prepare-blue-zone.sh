@@ -166,6 +166,13 @@ MANIFEST_OUT="$BLUE_ZONE_ROOT/$BLUE_ZONE_MANIFEST_FILE"
 STRIPPED_TMP="$(mktemp -d)"
 STRIPPED_TOTAL=0
 
+# Active content-denylist strings (the "insecure words"). A stripped file whose
+# NAME contains one is omitted from the manifest listing below: the manifest is
+# mounted where Claude can read it, so echoing such a filename would leak the
+# insecure word through the manifest itself.
+MANIFEST_DENY_FILE="$(mktemp)"
+blue_zone_denylist_strings > "$MANIFEST_DENY_FILE"
+
 # Header + summary table. Detail sections are appended in a second pass so the
 # per-folder stripped lists are computed only once (cached under STRIPPED_TMP).
 {
@@ -224,10 +231,25 @@ done
     if [ ! -s "$STRIPPED_TMP/$folder" ]; then
       echo "_Nothing stripped from this folder._"
     else
+      # Omit any stripped path whose name contains a denylisted (insecure) word,
+      # so the manifest never surfaces one. Matching mirrors the content
+      # denylist: case-insensitive, fixed-string (substring).
+      SHOWN_LIST="$STRIPPED_TMP/$folder"
+      HIDDEN_N=0
+      if [ -s "$MANIFEST_DENY_FILE" ]; then
+        grep -viFf "$MANIFEST_DENY_FILE" "$STRIPPED_TMP/$folder" \
+          > "$STRIPPED_TMP/$folder.shown" || true
+        HIDDEN_N=$(( $(grep -c . "$STRIPPED_TMP/$folder" || true) \
+                   - $(grep -c . "$STRIPPED_TMP/$folder.shown" || true) ))
+        SHOWN_LIST="$STRIPPED_TMP/$folder.shown"
+      fi
       while IFS= read -r f; do
         [ -n "$f" ] || continue
         echo "- \`$folder/$f\`"
-      done < "$STRIPPED_TMP/$folder"
+      done < "$SHOWN_LIST"
+      if [ "$HIDDEN_N" -gt 0 ]; then
+        echo "- _$HIDDEN_N file(s) omitted — name contains a denylisted string._"
+      fi
     fi
   done
   echo
@@ -265,6 +287,7 @@ done
 } >> "$MANIFEST_OUT"
 
 rm -rf "$STRIPPED_TMP"
+rm -f "$MANIFEST_DENY_FILE"
 echo -e "  ${GREEN}✓ manifest written${RESET} ($STRIPPED_TOTAL file(s) stripped) → mounted read-only at /workspace/$BLUE_ZONE_MANIFEST_FILE\n"
 
 # ─────────────────────────────────────────────────────────────────────────────

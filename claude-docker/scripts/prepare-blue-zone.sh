@@ -189,12 +189,16 @@ MANIFEST_OUT="$BLUE_ZONE_ROOT/$BLUE_ZONE_MANIFEST_FILE"
 STRIPPED_TMP="$(mktemp -d)"
 STRIPPED_TOTAL=0
 
-# Active content-denylist strings (the "insecure words"). A stripped file whose
-# NAME contains one is omitted from the manifest listing below: the manifest is
-# mounted where Claude can read it, so echoing such a filename would leak the
-# insecure word through the manifest itself.
+# Active content-denylist strings (the "insecure words"). The manifest is mounted
+# where Claude can read it, so it must not contain any of them: a stripped file
+# whose NAME carries one is omitted from the listing below, and — as a final
+# safety net — the whole assembled manifest is filtered before it is written out
+# (a red-zone rule pattern can itself equal a denylist entry, e.g.
+# `google-services.json`). The manifest is assembled into MANIFEST_TMP first and
+# the filtered result is written to MANIFEST_OUT.
 MANIFEST_DENY_FILE="$(mktemp)"
 blue_zone_denylist_strings > "$MANIFEST_DENY_FILE"
+MANIFEST_TMP="$STRIPPED_TMP/manifest.md"
 
 # Header + summary table. Detail sections are appended in a second pass so the
 # per-folder stripped lists are computed only once (cached under STRIPPED_TMP).
@@ -215,12 +219,12 @@ blue_zone_denylist_strings > "$MANIFEST_DENY_FILE"
   echo
   echo "| Folder | Mounted (blue) | Stripped (red) |"
   echo "| ------ | -------------: | -------------: |"
-} > "$MANIFEST_OUT"
+} > "$MANIFEST_TMP"
 
 for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
   if [ ! -d "./$folder" ]; then
     : > "$STRIPPED_TMP/$folder"
-    echo "| \`$folder\` | _absent_ | _absent_ |" >> "$MANIFEST_OUT"
+    echo "| \`$folder\` | _absent_ | _absent_ |" >> "$MANIFEST_TMP"
     continue
   fi
   # Source files (minus heavy/irrelevant trees) vs what actually got staged.
@@ -238,7 +242,7 @@ for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
   BLUE_N=$(printf '%s\n' "$STAGED_LIST" | grep -c . || true)
   RED_N=$(grep -c . "$STRIPPED_TMP/$folder" || true)
   STRIPPED_TOTAL=$((STRIPPED_TOTAL + RED_N))
-  echo "| \`$folder\` | $BLUE_N | $RED_N |" >> "$MANIFEST_OUT"
+  echo "| \`$folder\` | $BLUE_N | $RED_N |" >> "$MANIFEST_TMP"
 done
 
 {
@@ -307,7 +311,23 @@ done
   else
     echo "Inactive — no content strings are configured."
   fi
-} >> "$MANIFEST_OUT"
+} >> "$MANIFEST_TMP"
+
+# Final safety net: write the manifest out with any line carrying a denylisted
+# string dropped, so the mounted manifest can never contain one (matching mirrors
+# the denylist: case-insensitive, fixed-string). `>` truncates MANIFEST_OUT in
+# place, preserving its inode so a live single-file mount survives a re-run.
+if [ -s "$MANIFEST_DENY_FILE" ]; then
+  grep -viFf "$MANIFEST_DENY_FILE" "$MANIFEST_TMP" > "$MANIFEST_OUT" || true
+  REDACTED=$(( $(wc -l < "$MANIFEST_TMP") - $(wc -l < "$MANIFEST_OUT") ))
+  if [ "$REDACTED" -gt 0 ]; then
+    { echo
+      echo "_$REDACTED line(s) redacted from this manifest for containing a denylisted string; see \`blue-zone.config.sh\` for the full red-zone rules._"
+    } >> "$MANIFEST_OUT"
+  fi
+else
+  cat "$MANIFEST_TMP" > "$MANIFEST_OUT"
+fi
 
 rm -rf "$STRIPPED_TMP"
 rm -f "$MANIFEST_DENY_FILE"

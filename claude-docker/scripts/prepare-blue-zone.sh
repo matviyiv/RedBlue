@@ -4,6 +4,10 @@
 # Copies the configured blue-zone folders into /tmp/blue-zone/ with red zone
 # files excluded. Run this BEFORE docker compose to ensure clean filtered mounts.
 #
+# Safe to re-run while a container is already up: it resets the staged folders in
+# place (same directory inodes) instead of deleting the root, so live bind mounts
+# survive and the running container picks up the refreshed content.
+#
 # The folder list and exclusion rules come from blue-zone.config.sh — edit that
 # file to adapt the blue zone to your project. This script is project-agnostic.
 #
@@ -28,8 +32,15 @@ source "$SCRIPT_DIR/../blue-zone.config.sh"
 echo -e "${BOLD}${CYAN}🔵 Preparing Blue Zone...${RESET}\n"
 echo -e "  Folders: ${BOLD}${BLUE_ZONE_FOLDERS[*]}${RESET}\n"
 
-# ── Wipe previous run ─────────────────────────────────────────────────────────
-rm -rf "$BLUE_ZONE_ROOT"
+# ── Reset previous run — in place, without changing directory inodes ──────────
+# Do NOT `rm -rf "$BLUE_ZONE_ROOT"`: each configured folder under it may be a
+# live bind mount into a running container. Deleting the directory swaps its
+# inode, and the container — bound to the old inode at start — loses the mount
+# and stops seeing updates. Instead keep every folder directory and let the
+# rsync `--delete` in sync_zone reset its *contents* in place. A developer can
+# then re-run prepare while a session is up and the container picks the changes
+# up live. (Root-level files — the snapshot, manifest, overlay — are rewritten
+# in place further below, so their inodes are preserved too.)
 mkdir -p "$BLUE_ZONE_ROOT"
 for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
   mkdir -p "$BLUE_ZONE_ROOT/$folder"
@@ -48,12 +59,19 @@ sync_zone() {
 
   if [ ! -d "$SRC" ]; then
     echo -e "  ${YELLOW}⚠  $LABEL not found at $SRC — skipping${RESET}"
+    # Empty any stale content in place (keep the directory so a live mount that
+    # points at it survives) — the source is gone, so the blue zone must be too.
+    [ -d "$DEST" ] && find "$DEST" -mindepth 1 -delete 2>/dev/null || true
     return
   fi
 
   echo -e "${BOLD}[$LABEL]${RESET} $SRC → $DEST"
 
-  rsync -a "$SRC/" "$DEST/" "${EXTRA_ARGS[@]}"
+  # --delete resets DEST to match SRC (minus excludes) by updating files inside
+  # the existing directory rather than replacing it, so its inode — and any bind
+  # mount into a running container — is preserved and the container sees the
+  # refreshed content live.
+  rsync -a --delete "$SRC/" "$DEST/" "${EXTRA_ARGS[@]}"
 
   # Audit: show what was excluded
   EXCLUDED=$(comm -23 \

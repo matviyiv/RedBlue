@@ -29,6 +29,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
 
+# Defensive default: an older blue-zone.config.sh may not define the manifest
+# filename. Fall back here so `set -u` doesn't abort on the unbound variable when
+# the script is newer than the config it's paired with.
+BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
+
 echo -e "${BOLD}${CYAN}🔵 Preparing Blue Zone...${RESET}\n"
 echo -e "  Folders: ${BOLD}${BLUE_ZONE_FOLDERS[*]}${RESET}\n"
 

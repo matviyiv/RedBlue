@@ -88,14 +88,18 @@ claude-security-review:
         VOLS+=(--volume "${BLUE_ZONE_ROOT}/$f:/workspace/$f:ro")
         TARGETS="${TARGETS:+$TARGETS, }/workspace/$f"
       done
+      # Staged root files (BLUE_ZONE_ROOT_FILES) — already filtered/validated.
+      for rf in ${BLUE_ZONE_ROOT_FILES[@]+"${BLUE_ZONE_ROOT_FILES[@]}"}; do
+        [ -f "${BLUE_ZONE_ROOT}/$rf" ] || continue
+        VOLS+=(--volume "${BLUE_ZONE_ROOT}/$rf:/workspace/$rf:ro")
+        TARGETS="${TARGETS:+$TARGETS, }/workspace/$rf"
+      done
       docker run --rm \
         --network none \
         --memory 512m \
         --env CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
         --env CI=true \
         "${VOLS[@]}" \
-        --volume "$(pwd)/package.json:/workspace/package.json:ro" \
-        --volume "$(pwd)/tsconfig.json:/workspace/tsconfig.json:ro" \
         --volume "$(pwd)/.env.example:/workspace/.env.example:ro" \
         --volume "$(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro" \
         --workdir /workspace \
@@ -140,6 +144,11 @@ claude-code-review:
         PATHSPECS+=("$f/")
         VOLS+=(--volume "${BLUE_ZONE_ROOT}/$f:/workspace/$f:ro")
       done
+      # Staged root files (BLUE_ZONE_ROOT_FILES) — already filtered/validated.
+      for rf in ${BLUE_ZONE_ROOT_FILES[@]+"${BLUE_ZONE_ROOT_FILES[@]}"}; do
+        PATHSPECS+=("$rf")
+        [ -f "${BLUE_ZONE_ROOT}/$rf" ] && VOLS+=(--volume "${BLUE_ZONE_ROOT}/$rf:/workspace/$rf:ro")
+      done
       CHANGED=$(git diff --name-only "origin/$CI_DEFAULT_BRANCH...HEAD" \
         -- "${PATHSPECS[@]}" | tr '\n' ' ')
       echo "Changed blue zone files: $CHANGED"
@@ -149,8 +158,6 @@ claude-code-review:
         --env CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
         --env CI=true \
         "${VOLS[@]}" \
-        --volume "$(pwd)/package.json:/workspace/package.json:ro" \
-        --volume "$(pwd)/tsconfig.json:/workspace/tsconfig.json:ro" \
         --volume "$(pwd)/.env.example:/workspace/.env.example:ro" \
         --volume "$(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro" \
         --workdir /workspace \

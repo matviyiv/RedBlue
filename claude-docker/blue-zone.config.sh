@@ -28,6 +28,17 @@
 #   BLUE_ZONE_FOLDERS=(cmd internal pkg)              # a Go service
 BLUE_ZONE_FOLDERS=(src ios android)
 
+# ── Individual root-level files copied into the blue zone ─────────────────────
+# Single files (given as repo-relative paths) staged into the blue zone alongside
+# the folders, each mounted at /workspace/<path>. Unlike a raw docker-compose bind
+# mount, these go through the SAME pipeline as folders: the content denylist drops
+# any that contain a forbidden string, the validator scans them for secrets, they
+# are recorded in the snapshot, synced back on exit, and listed in the manifest.
+# Use for reviewable manifests/config like package.json or tsconfig.json. A file
+# that doesn't exist in the repo is skipped with a warning. Do NOT list secrets
+# here — `.env*` files are refused, and anything secret belongs in the red zone.
+BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json)
+
 # ── Exclusions applied to EVERY folder ───────────────────────────────────────
 # rsync --exclude patterns stripped from every folder before it is staged.
 # Keep secrets and installed dependencies out no matter which folder they're in.

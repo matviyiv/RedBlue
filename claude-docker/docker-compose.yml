@@ -68,11 +68,9 @@ services:
     <<: *claude-common
     environment:
       # Auth (any ONE is enough):
-      #   ANTHROPIC_API_KEY       - Anthropic API key
       #   CLAUDE_CODE_OAUTH_TOKEN - `claude setup-token` (Pro/Max subscription)
       #   neither                 - /login inside the container, persisted in
       #                             the claude-home volume
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - CI=true
       - GITLAB_CI=${GITLAB_CI:-false}
@@ -91,7 +89,6 @@ services:
   claude-cli:
     <<: *claude-common
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - CI=true
       - GITLAB_CI=${GITLAB_CI:-false}

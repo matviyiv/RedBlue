@@ -18,11 +18,13 @@ flowchart TD
     subgraph stage["Host — /tmp/blue-zone (staging, git-ignored)"]
         staged["Filtered per-folder copies"]
         snap[".blue-zone-snapshot<br/>(what Claude was allowed to see)"]
+        manifest["BLUE_ZONE_MANIFEST.md<br/>(what was stripped — red zone)"]
         overlay["docker-compose.blue-zone.yml<br/>(generated per-folder mounts)"]
     end
 
     subgraph container["Claude Code container — /workspace"]
         ws["Mounted folders (writable)<br/>Claude reads & edits here"]
+        wsman["BLUE_ZONE_MANIFEST.md (read-only)<br/>Claude sees the project's true shape"]
     end
 
     deny["blue-zone-insecure-strings.txt<br/>forbidden content strings"]
@@ -38,7 +40,11 @@ flowchart TD
     prep -->|"content scan:<br/>drop files with a<br/>forbidden string"| xdeny(["✗ removed, not mounted"])
     prep --> staged
     prep --> snap
+    prep --> manifest
     prep --> overlay
+
+    overlay -->|"mounts read-only"| wsman
+    manifest -.->|mounted into| wsman
 
     staged -->|"validate-blue-zone.sh<br/>secret + exclusion scan"| val{validate<br/>clean?}
     val -->|no| stop(["✗ abort — leak found"])
@@ -56,7 +62,7 @@ flowchart TD
     classDef safe fill:#efe,stroke:#0a0,color:#060;
     classDef cfgcls fill:#eef,stroke:#33c,color:#229;
     class red,xred,stop,xblock,xdeny danger;
-    class blue,staged,ws safe;
+    class blue,staged,ws,manifest,wsman safe;
     class cfg,deny cfgcls;
 ```
 
@@ -65,7 +71,7 @@ flowchart TD
 | Stage | Script | What happens |
 |-------|--------|--------------|
 | **Configure** | `blue-zone.config.sh` | Declares `BLUE_ZONE_FOLDERS` and the common + per-folder exclusion rules. The only file you edit to adapt to a project. |
-| **Prepare** | `prepare-blue-zone.sh` | `rsync`s each configured folder into `/tmp/blue-zone/`, stripping red-zone files. Writes the snapshot and generates the docker-compose mount overlay. |
+| **Prepare** | `prepare-blue-zone.sh` | `rsync`s each configured folder into `/tmp/blue-zone/`, stripping red-zone files. Writes the snapshot, the read-only `BLUE_ZONE_MANIFEST.md` (an inventory of what was stripped), and generates the docker-compose mount overlay. |
 | **Content scan** | `prepare-blue-zone.sh` + `blue-zone-insecure-strings.txt` | Drops any staged file whose content contains a forbidden string, so it is never mounted (and never enters the snapshot). Lines carrying the allow marker (`fine-for-claude`, `BLUE_ZONE_ALLOW_MARKER`) are treated as reviewed exceptions and kept. |
 | **Validate** | `validate-blue-zone.sh` | Confirms every configured exclusion held and scans for hardcoded secrets. Allow-marked lines are ignored; any un-exempted leak aborts the run before anything is mounted. |
 | **Mount & run** | `start-cli.sh` / `run-headless.sh` | Layers the generated overlay onto `docker-compose.yml` via `COMPOSE_FILE` and starts Claude Code with only the blue-zone folders mounted (writable). |

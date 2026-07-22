@@ -26,12 +26,10 @@ flowchart TD
     i_build --> authq{"How to authenticate?"}
 
     subgraph auth["Authentication — pick one"]
-        authq -->|API key| a1["export ANTHROPIC_API_KEY=sk-ant-…"]
         authq -->|Pro/Max subscription| a2["claude setup-token →<br/>export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat…"]
-        authq -->|No key| a3["Skip — log in with /login<br/>inside the first session"]
+        authq -->|No token| a3["Skip — log in with /login<br/>inside the first session"]
     end
 
-    a1 --> cfg
     a2 --> cfg
     a3 --> cfg
 
@@ -56,7 +54,7 @@ flowchart TD
     classDef step fill:#eef,stroke:#33c,color:#229;
     classDef done fill:#efe,stroke:#0a0,color:#060;
     classDef decision fill:#ffe,stroke:#cc0,color:#770;
-    class init,i_prereq,i_auth,i_perm,i_env,i_folders,i_build,a1,a2,a3,edit,cli,hl,dologin,clone,install step;
+    class init,i_prereq,i_auth,i_perm,i_env,i_folders,i_build,a2,a3,edit,cli,hl,dologin,clone,install step;
     class start,session done;
     class prereq,authq,cfg,choose,login decision;
 ```
@@ -68,7 +66,7 @@ flowchart TD
 | 1 | **Install prerequisites** | `docker`, `docker compose`, `rsync`; `jq` optional | `init.sh` checks these and stops if a required one is missing. |
 | 2 | **Get the setup** | clone the repo with the `claude-docker/` scripts | The scripts, `blue-zone.config.sh` and compose files live alongside your project. |
 | 3 | **Run init** | `./scripts/init.sh` | Verifies tools, resolves auth, marks scripts executable, seeds `.env.example`, lists the configured blue-zone folders, and builds the image. |
-| 4 | **Authenticate** | API key **or** subscription token **or** `/login` | An API key is optional — with none, just start a session and log in on the spot. |
+| 4 | **Authenticate** | subscription token **or** `/login` | A token is optional — with none, just start a session and log in on the spot. |
 | 5 | **Adapt to your project** (optional) | `blue-zone.config.sh` → `BLUE_ZONE_FOLDERS` | Only if your top-level folders differ from `src/ios/android`. See [blue-zone-flow.md](blue-zone-flow.md). |
 | 6 | **Run a session** | `./scripts/start-cli.sh` or `./scripts/run-headless.sh "…"` | Each run prepares + validates the blue zone, mounts it, and syncs changes back on exit. |
 

@@ -30,6 +30,22 @@ Sync-back safety rules (enforced via a snapshot taken at prepare time):
   the blue zone at prepare time — red-zone paths are never in the snapshot, so
   they can never be deleted by sync-back.
 
+## Blue zone manifest
+
+`prepare-blue-zone.sh` writes a **`BLUE_ZONE_MANIFEST.md`** at the blue zone root
+and mounts it **read-only** into the container at `/workspace/BLUE_ZONE_MANIFEST.md`.
+It is a Claude-readable record of what was **stripped** — the files that exist on
+the host but are deliberately absent from the workspace (red zone) — together
+with the filename rules and content denylist that removed them.
+
+Its purpose is to give Claude the true shape of the project without leaking any
+red-zone *contents*: Claude can see that, say, `src/api/auth-api.ts` exists (so it
+codes against the contract in `src/types/` instead of recreating the file) while
+never being able to read it. Because it lives at the blue zone root — not inside a
+mounted folder — `sync-back.sh` never copies it back into the repo, and the
+read-only mount means Claude cannot alter it. Change the filename via
+`BLUE_ZONE_MANIFEST_FILE` in `blue-zone.config.sh`.
+
 ## Configuring blue-zone folders
 
 Which top-level folders are staged into the blue zone — and what gets stripped
@@ -121,7 +137,7 @@ your-rn-project/
 │   └── CLAUDE.md                  <- Claude's scope and constraints
 ├── scripts/
 │   ├── init.sh                    <- One-time setup
-│   ├── auth.sh                    <- Auth resolution (API key / token / login)
+│   ├── auth.sh                    <- Auth resolution (token / login)
 │   ├── prepare-blue-zone.sh       <- rsync filter into /tmp/blue-zone/
 │   ├── validate-blue-zone.sh      <- Secret leak scanner
 │   ├── start-cli.sh               <- Interactive session (local dev)
@@ -138,15 +154,14 @@ your-rn-project/
 
 ## Authentication
 
-An API key is **optional**. Auth is resolved in this order:
+A token is **optional**. Auth is resolved in this order:
 
 | Priority | Method | How |
 |----------|--------|-----|
-| 1 | API key | `export ANTHROPIC_API_KEY=sk-ant-...` |
-| 2 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
-| 3 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
+| 1 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
+| 2 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
 
-Headless runs (`run-headless.sh`, CI) need one of the three already in place;
+Headless runs (`run-headless.sh`, CI) need one of the two already in place;
 interactive sessions can always start and log in on the spot.
 
 ## Persistent Sessions
@@ -171,8 +186,8 @@ To wipe it and start fresh:
 # One-time setup
 ./scripts/init.sh
 
-# Interactive session (local dev) — with an API key...
-export ANTHROPIC_API_KEY=sk-ant-...
+# Interactive session (local dev) — with a subscription token...
+export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
 ./scripts/start-cli.sh
 
 # ...or without one: just start it and log in with /login (persists)
@@ -206,9 +221,8 @@ android/
 
 ## GitLab CI Variables
 
-Set **one** of:
+Set:
 
 | Key | Masked | Protected |
 |-----|--------|-----------|
-| `ANTHROPIC_API_KEY` | Yes | Yes |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | Yes |

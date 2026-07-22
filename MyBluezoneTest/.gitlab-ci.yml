@@ -1,8 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # GitLab CI - Claude Code Blue Zone Pipeline
 #
-# Required CI/CD Variables (Settings > CI/CD > Variables) - set ONE of:
-#   ANTHROPIC_API_KEY       - Anthropic API key (Masked, Protected)
+# Required CI/CD Variable (Settings > CI/CD > Variables):
 #   CLAUDE_CODE_OAUTH_TOKEN - `claude setup-token` output, Pro/Max
 #                             subscription (Masked, Protected)
 #
@@ -79,7 +78,6 @@ claude-security-review:
       docker run --rm \
         --network none \
         --memory 512m \
-        --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
         --env CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
         --env CI=true \
         --volume /tmp/blue-zone/src:/workspace/src:ro \
@@ -126,7 +124,6 @@ claude-code-review:
       docker run --rm \
         --network none \
         --memory 512m \
-        --env ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
         --env CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN \
         --env CI=true \
         --volume /tmp/blue-zone/src:/workspace/src:ro \

@@ -30,19 +30,17 @@ fi
 
 echo -e "${BOLD}${CYAN}Claude Code - Interactive CLI (Blue Zone)${RESET}\n"
 
-# ── Resolve authentication (API key optional) ────────────────────────────────
+# ── Resolve authentication (token optional) ──────────────────────────────────
 source "$(dirname "$0")/auth.sh"
 resolve_auth
 
 case "$AUTH_MODE" in
-  api-key)
-    echo -e "${GREEN}Auth: ANTHROPIC_API_KEY${RESET}" ;;
   oauth-token)
     echo -e "${GREEN}Auth: CLAUDE_CODE_OAUTH_TOKEN (subscription)${RESET}" ;;
   persisted-login)
     echo -e "${GREEN}Auth: persisted login from claude-home volume${RESET}" ;;
   none)
-    echo -e "${YELLOW}No ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN found.${RESET}"
+    echo -e "${YELLOW}No CLAUDE_CODE_OAUTH_TOKEN found.${RESET}"
     echo -e "${YELLOW}You'll be prompted to log in with your Claude account inside the${RESET}"
     echo -e "${YELLOW}session (run /login). Credentials persist in the claude-home${RESET}"
     echo -e "${YELLOW}Docker volume, so this is only needed once.${RESET}" ;;

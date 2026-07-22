@@ -171,7 +171,16 @@ blue_zone_denylist_strings > "$DENY_PATTERNS"
 if [ ! -s "$DENY_PATTERNS" ]; then
   pass "No content denylist configured (${BLUE_ZONE_DENYLIST_FILE##*/} has no active entries)"
 else
-  DENY_HITS=$(grep -rliaFf "$DENY_PATTERNS" "$BLUE_ZONE_ROOT" 2>/dev/null || true)
+  # Scan only the staged folders — the actual mounted content. Root-level
+  # tooling metadata (the manifest, snapshot, generated overlay) lists stripped
+  # filenames and rule patterns, which must not be mistaken for leaked content.
+  DENY_SCAN_DIRS=()
+  for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+    [ -d "$BLUE_ZONE_ROOT/$folder" ] && DENY_SCAN_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+  done
+  DENY_HITS=""
+  [ "${#DENY_SCAN_DIRS[@]}" -gt 0 ] && \
+    DENY_HITS=$(grep -rliaFf "$DENY_PATTERNS" "${DENY_SCAN_DIRS[@]}" 2>/dev/null || true)
   DENY_REAL=0
   if [ -n "$DENY_HITS" ]; then
     while IFS= read -r hf; do

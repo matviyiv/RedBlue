@@ -204,7 +204,41 @@ Past conversations can be resumed inside a new session with `claude
 To wipe it and start fresh:
 
 ```bash
-./scripts/start-cli.sh --clear    # removes the claude-home volume
+./scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
+```
+
+## Dependencies (node_modules cache)
+
+`node_modules` is **red-zone-excluded** from the blue zone (never copied from the
+host), but a persistent **`node-modules`** Docker volume is mounted at
+`/workspace/node_modules`, so installed packages **survive between runs**. The
+first `npm install` populates it; later runs are incremental. npm's download
+cache (`~/.npm`) persists too, inside the `claude-home` volume.
+
+The **interactive** container can reach the npm and yarn registries (added to the
+egress allowlist in `proxy/filter`), so `npm install` / `yarn install` work there.
+The **headless** container has no network by design — it reuses whatever the
+persistent `node-modules` volume already holds, so run an install interactively
+once and headless/CI runs pick it up.
+
+The volume is made writable by the container's non-root `claude` user
+automatically: the image pre-creates `/workspace/node_modules` (owned by
+`claude`) so a fresh volume seeds correctly, and `start-cli.sh` / `run-headless.sh`
+chown it on startup so a volume left root-owned by an older image self-heals — no
+`EACCES` on `npm install`. (To reset instead: `docker compose down -v`.)
+
+Installs are memory-hungry (resolving a large React Native tree, worst case with
+no lockfile). The container memory limit is **4g** by default and Node's heap is
+raised to 3 GB (`NODE_OPTIONS=--max-old-space-size=3072` in the Dockerfile) so
+`yarn install` doesn't abort with *JavaScript heap out of memory* (exit 134).
+Tune the limit with `CLAUDE_MEMORY` (e.g. `CLAUDE_MEMORY=2g` or `8g`) — keep it
+at or above the Node heap size, or the process is OOM-killed by the cgroup.
+Committing a lockfile (add `package-lock.json` / `yarn.lock` to
+`BLUE_ZONE_ROOT_FILES`) makes installs lighter and deterministic.
+
+```bash
+docker compose down -v            # clears node_modules (and claude-home) volumes
+CLAUDE_MEMORY=8g ./scripts/start-cli.sh   # more memory for a big install
 ```
 
 ## Quick Start

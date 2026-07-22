@@ -53,13 +53,29 @@ x-claude-common: &claude-common
     # Persisted Claude state (writable) — the WHOLE home dir, because Claude
     # Code keeps onboarding/session state in ~/.claude.json (not inside
     # ~/.claude/). Keeps login, settings, and session history across runs.
+    # Also persists npm's download cache at ~/.npm.
     # Clear with: ./scripts/start-cli.sh --clear
     - claude-home:/home/claude
+
+    # Persistent node_modules cache — a named volume (NOT a bind mount) that
+    # survives between runs, so `npm install` is incremental instead of a full
+    # reinstall every session. It sits outside the blue zone (node_modules is
+    # red-zone-excluded on the host) and is never synced back. The image
+    # pre-creates /workspace/node_modules owned by claude so this volume
+    # initializes writable for the non-root user. Clear it with:
+    #   docker compose down -v   (also clears claude-home)
+    - node-modules:/workspace/node_modules
   working_dir: /workspace
   deploy:
     resources:
       limits:
-        memory: 512m
+        # Headroom for dependency installs — yarn/npm resolve large React Native
+        # trees (worst case with no lockfile) and otherwise abort with
+        # "JavaScript heap out of memory". Override for a smaller/larger host,
+        # e.g. CLAUDE_MEMORY=2g. Keep it at or above NODE_OPTIONS'
+        # --max-old-space-size (set in the Dockerfile), or Node's heap ceiling
+        # exceeds the cgroup limit and the process is OOM-killed instead.
+        memory: ${CLAUDE_MEMORY:-4g}
 
 services:
   # ─────────────────────────────────────────────────────────────
@@ -147,3 +163,6 @@ volumes:
   # session history so nothing is asked twice. Remove to start fresh:
   # ./scripts/start-cli.sh --clear   (or: docker compose down -v)
   claude-home:
+  # Persists installed node_modules across runs (see the mount above), so
+  # `npm install` only fetches what changed. Remove with: docker compose down -v
+  node-modules:

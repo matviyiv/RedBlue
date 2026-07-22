@@ -27,6 +27,21 @@ RUN mkdir -p /home/claude/.claude && chown -R claude:claude /home/claude
 WORKDIR /workspace
 RUN chown claude:claude /workspace
 
+# Pre-create the node_modules mount point owned by claude. docker-compose.yml
+# mounts a persistent named volume here; Docker seeds a fresh volume from this
+# image directory, so it inherits claude ownership and stays writable for
+# `npm install` running as the non-root user.
+RUN mkdir -p /workspace/node_modules && chown claude:claude /workspace/node_modules
+
+# Give Node a larger heap so dependency installs — yarn/npm resolving large
+# React Native trees, worst case with no lockfile — don't abort with
+# "JavaScript heap out of memory" (SIGABRT / exit 134). Inherited by every node
+# process, including the yarn/npm that Claude runs. Keep this at or below the
+# container memory limit (docker-compose.yml deploy.resources.limits.memory) so
+# the process isn't OOM-killed by the cgroup instead. Override per-run with
+# `-e NODE_OPTIONS=...`.
+ENV NODE_OPTIONS="--max-old-space-size=3072"
+
 # Switch to non-root user
 USER claude
 

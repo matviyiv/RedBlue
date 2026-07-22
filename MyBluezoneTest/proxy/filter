@@ -19,3 +19,11 @@ statsig\.anthropic\.com$
 # Public hosts only; this does not grant any LAN access.
 (^|\.)github\.com$
 (^|\.)githubusercontent\.com$
+
+# npm / yarn registries — so `npm install` / `yarn install` can fetch packages
+# and tarballs in the interactive container (the headless service has no network
+# and reuses the persistent node_modules cache instead). Registry metadata and
+# tarballs are both served from these hosts; many native deps also fetch release
+# binaries from GitHub, already allowed above. Public registries only.
+(^|\.)npmjs\.org$
+(^|\.)yarnpkg\.com$

@@ -27,6 +27,12 @@ RUN mkdir -p /home/claude/.claude && chown -R claude:claude /home/claude
 WORKDIR /workspace
 RUN chown claude:claude /workspace
 
+# Pre-create the node_modules mount point owned by claude. docker-compose.yml
+# mounts a persistent named volume here; Docker seeds a fresh volume from this
+# image directory, so it inherits claude ownership and stays writable for
+# `npm install` running as the non-root user.
+RUN mkdir -p /workspace/node_modules && chown claude:claude /workspace/node_modules
+
 # Switch to non-root user
 USER claude
 

@@ -204,7 +204,25 @@ Past conversations can be resumed inside a new session with `claude
 To wipe it and start fresh:
 
 ```bash
-./scripts/start-cli.sh --clear    # removes the claude-home volume
+./scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
+```
+
+## Dependencies (node_modules cache)
+
+`node_modules` is **red-zone-excluded** from the blue zone (never copied from the
+host), but a persistent **`node-modules`** Docker volume is mounted at
+`/workspace/node_modules`, so installed packages **survive between runs**. The
+first `npm install` populates it; later runs are incremental. npm's download
+cache (`~/.npm`) persists too, inside the `claude-home` volume.
+
+The **interactive** container can reach the npm and yarn registries (added to the
+egress allowlist in `proxy/filter`), so `npm install` / `yarn install` work there.
+The **headless** container has no network by design — it reuses whatever the
+persistent `node-modules` volume already holds, so run an install interactively
+once and headless/CI runs pick it up.
+
+```bash
+docker compose down -v            # clears node_modules (and claude-home) volumes
 ```
 
 ## Quick Start

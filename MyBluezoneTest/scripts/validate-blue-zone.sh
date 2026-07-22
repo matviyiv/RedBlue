@@ -22,6 +22,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
 
+# Defensive default: an older config may not define BLUE_ZONE_ROOT_FILES.
+declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
+
 STRICT=false
 VIOLATIONS=0
 WARNINGS=0
@@ -177,6 +180,9 @@ else
   DENY_SCAN_DIRS=()
   for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
     [ -d "$BLUE_ZONE_ROOT/$folder" ] && DENY_SCAN_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+  done
+  for rf in ${BLUE_ZONE_ROOT_FILES[@]+"${BLUE_ZONE_ROOT_FILES[@]}"}; do
+    [ -f "$BLUE_ZONE_ROOT/$rf" ] && DENY_SCAN_DIRS+=("$BLUE_ZONE_ROOT/$rf")
   done
   DENY_HITS=""
   [ "${#DENY_SCAN_DIRS[@]}" -gt 0 ] && \

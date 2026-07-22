@@ -43,9 +43,10 @@ x-claude-common: &claude-common
     # Blue zone - pre-filtered per-folder copies are added by the generated
     # docker-compose.blue-zone.yml overlay (from blue-zone.config.sh), not here.
 
-    # Config files
-    - ./package.json:/workspace/package.json:ro
-    - ./tsconfig.json:/workspace/tsconfig.json:ro
+    # Config files. package.json / tsconfig.json and other reviewable root files
+    # are NOT mounted here — list them in BLUE_ZONE_ROOT_FILES (blue-zone.config.sh)
+    # so they go through the same filtering/validation as the folders and are
+    # added by the generated docker-compose.blue-zone.yml overlay.
     - ./.env.example:/workspace/.env.example:ro
     - ./.claude/CLAUDE.md:/workspace/CLAUDE.md:ro
 

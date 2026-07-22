@@ -33,6 +33,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
 
+# Defensive default: an older config may not define BLUE_ZONE_ROOT_FILES.
+declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
+
 SNAPSHOT="$BLUE_ZONE_ROOT/.blue-zone-snapshot"
 
 DRY_RUN=0
@@ -96,6 +99,36 @@ while IFS= read -r -d '' f; do
     fi
   fi
 done < <(find "${BLUE_ZONE_DIRS[@]}" -type f -print0 2>/dev/null)
+
+# ── Configured root files ─────────────────────────────────────────────────────
+# Same rules as folder files, but they live at the blue zone root (not inside a
+# BLUE_ZONE_DIR), so they're handled here. Deletions are covered by the snapshot
+# loop below, which treats every snapshotted path — folder file or root file —
+# the same.
+for rf in ${BLUE_ZONE_ROOT_FILES[@]+"${BLUE_ZONE_ROOT_FILES[@]}"}; do
+  staged="$BLUE_ZONE_ROOT/$rf"
+  [ -f "$staged" ] || continue
+  if grep -qxF "$rf" "$SNAPSHOT"; then
+    if ! cmp -s "$staged" "./$rf" 2>/dev/null; then
+      echo -e "  ${GREEN}~ updated${RESET}  $rf"
+      if [ "$DRY_RUN" = 0 ]; then
+        mkdir -p "$(dirname "./$rf")"
+        cp -p "$staged" "./$rf"
+      fi
+      UPDATED=$((UPDATED + 1))
+    fi
+  elif [ -e "./$rf" ]; then
+    echo -e "  ${RED}! blocked${RESET}  $rf ${RED}(collides with a red-zone file — left untouched)${RESET}"
+    BLOCKED=$((BLOCKED + 1))
+  else
+    echo -e "  ${GREEN}+ added${RESET}    $rf"
+    if [ "$DRY_RUN" = 0 ]; then
+      mkdir -p "$(dirname "./$rf")"
+      cp -p "$staged" "./$rf"
+    fi
+    ADDED=$((ADDED + 1))
+  fi
+done
 
 # ── Deletions ─────────────────────────────────────────────────────────────────
 # A snapshotted file (blue zone at prepare time) that Claude removed during the

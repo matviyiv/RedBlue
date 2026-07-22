@@ -61,6 +61,9 @@ edit.
 BLUE_ZONE_FOLDERS=(src ios android)      # e.g. (cmd internal pkg) for a Go svc,
                                          #      (app lib spec)     for Rails, …
 
+# Individual root-level files, staged and validated like the folders.
+BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json)
+
 # Stripped from every folder, whatever the project:
 BLUE_ZONE_COMMON_EXCLUDES=(".env*" "node_modules/")
 
@@ -73,6 +76,30 @@ stages exactly those folders, generates the matching docker-compose mounts
 (`docker-compose.blue-zone.yml`, layered on via `COMPOSE_FILE`), and
 `validate-blue-zone.sh` verifies every configured exclusion actually held. You
 do **not** touch `docker-compose.yml` or any script to add or remove a folder.
+
+### Adding individual files (`BLUE_ZONE_ROOT_FILES`)
+
+To expose a single file (e.g. `package.json`, `tsconfig.json`), list it in
+**`BLUE_ZONE_ROOT_FILES`** rather than bind-mounting it in `docker-compose.yml`.
+Unlike a raw mount, a file listed here goes through the **same pipeline as the
+folders**: it is staged into the blue zone, dropped if the content denylist finds
+a forbidden string, scanned for secrets by `validate-blue-zone.sh`, recorded in
+the snapshot, synced back on exit, and listed in the manifest. Each file is
+mounted at `/workspace/<path>` (writable, like folders).
+
+```bash
+BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json babel.config.js)
+```
+
+- Paths are repo-relative; a file that doesn't exist is skipped with a warning.
+- `.env*` files are **refused** — secrets belong in the red zone, not here.
+- A listed file that contains a denylisted string is dropped and shows up in the
+  manifest as *not available*, exactly like a stripped folder file.
+
+The only files still bind-mounted directly in `docker-compose.yml` are
+`.env.example` (schema reference, value-less, validated separately) and
+`.claude/CLAUDE.md` (Claude's guidance) — everything reviewable goes through
+`BLUE_ZONE_ROOT_FILES`.
 
 ## Content denylist (insecure strings)
 

@@ -29,10 +29,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
 
-# Defensive default: an older blue-zone.config.sh may not define the manifest
-# filename. Fall back here so `set -u` doesn't abort on the unbound variable when
-# the script is newer than the config it's paired with.
+# Defensive defaults: an older blue-zone.config.sh may not define these newer
+# options. Fall back here so `set -u` doesn't abort when the script is newer than
+# the config it's paired with.
 BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
+declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
 
 echo -e "${BOLD}${CYAN}🔵 Preparing Blue Zone...${RESET}\n"
 echo -e "  Folders: ${BOLD}${BLUE_ZONE_FOLDERS[*]}${RESET}\n"
@@ -105,6 +106,36 @@ for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
 done
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 🔵 Stage each configured root-level file (BLUE_ZONE_ROOT_FILES). These get the
+#    same downstream treatment as folder files — content denylist, secret scan,
+#    snapshot, sync-back, manifest — they just live at the blue zone root and are
+#    mounted individually at /workspace/<path>. `.env*` files are refused.
+#    STAGED_ROOT_FILES holds the ones actually copied in (existing + not refused).
+# ─────────────────────────────────────────────────────────────────────────────
+STAGED_ROOT_FILES=()
+if [ "${#BLUE_ZONE_ROOT_FILES[@]}" -gt 0 ]; then
+  echo -e "${BOLD}[root files]${RESET} ${BLUE_ZONE_ROOT_FILES[*]}"
+  for rf in "${BLUE_ZONE_ROOT_FILES[@]}"; do
+    case "${rf##*/}" in
+      .env*)
+        echo -e "  ${RED}✗ refused${RESET} $rf ${RED}(.env files are red zone)${RESET}"
+        continue ;;
+    esac
+    if [ ! -f "./$rf" ]; then
+      echo -e "  ${YELLOW}⚠  $rf not found — skipping${RESET}"
+      continue
+    fi
+    mkdir -p "$(dirname "$BLUE_ZONE_ROOT/$rf")"
+    # cp truncates an existing destination in place (same inode), so a live
+    # single-file mount from a previous run survives the refresh.
+    cp -p "./$rf" "$BLUE_ZONE_ROOT/$rf"
+    STAGED_ROOT_FILES+=("$rf")
+    echo -e "  ${GREEN}✓${RESET} $rf → /workspace/$rf"
+  done
+  echo
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 🔒 Content denylist — drop any staged file that CONTAINS a forbidden string
 # (from blue-zone-insecure-strings.txt) so it is never mounted. This catches
 # secrets/insecure markers living inside otherwise-innocuous files, which the
@@ -118,10 +149,13 @@ blue_zone_denylist_strings > "$PATTERN_FILE"
 if [ ! -s "$PATTERN_FILE" ]; then
   echo -e "  ${YELLOW}⚠  no active entries in ${BLUE_ZONE_DENYLIST_FILE##*/} — content scan skipped${RESET}\n"
 else
-  # Existing staged folders only (skip any that were absent from the repo).
+  # Existing staged folders + root files (skip any that were absent from the repo).
   SCAN_DIRS=()
   for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
     [ -d "$BLUE_ZONE_ROOT/$folder" ] && SCAN_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+  done
+  for rf in ${STAGED_ROOT_FILES[@]+"${STAGED_ROOT_FILES[@]}"}; do
+    [ -f "$BLUE_ZONE_ROOT/$rf" ] && SCAN_DIRS+=("$BLUE_ZONE_ROOT/$rf")
   done
 
   DENY_REMOVED=0
@@ -170,9 +204,13 @@ chmod -R a+rwX "$BLUE_ZONE_ROOT"
 # Snapshot of blue zone contents at prepare time.
 # sync-back.sh uses this to tell Claude's changes apart from red-zone files.
 # Lives at the blue zone root, which is NOT mounted into the container —
-# only the configured folders are.
+# only the configured folders and root files are. Covers both.
 # ─────────────────────────────────────────────────────────────────────────────
-(cd "$BLUE_ZONE_ROOT" && find "${BLUE_ZONE_FOLDERS[@]}" -type f 2>/dev/null | sort > .blue-zone-snapshot)
+SNAPSHOT_ITEMS=("${BLUE_ZONE_FOLDERS[@]}")
+for rf in ${STAGED_ROOT_FILES[@]+"${STAGED_ROOT_FILES[@]}"}; do
+  [ -f "$BLUE_ZONE_ROOT/$rf" ] && SNAPSHOT_ITEMS+=("$rf")
+done
+(cd "$BLUE_ZONE_ROOT" && find "${SNAPSHOT_ITEMS[@]}" -type f 2>/dev/null | sort > .blue-zone-snapshot)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Blue zone manifest — a Claude-readable record of what was STRIPPED. For each
@@ -280,6 +318,20 @@ done
     fi
   done
   echo
+  echo "## Root files"
+  echo
+  if [ "${#BLUE_ZONE_ROOT_FILES[@]}" -eq 0 ]; then
+    echo "_None configured._"
+  else
+    for rf in "${BLUE_ZONE_ROOT_FILES[@]}"; do
+      if [ -f "$BLUE_ZONE_ROOT/$rf" ]; then
+        echo "- \`$rf\` — mounted at \`/workspace/$rf\`"
+      else
+        echo "- \`$rf\` — **not available** (absent, refused, or dropped by the content denylist)"
+      fi
+    done
+  fi
+  echo
   echo "## Why these were stripped"
   echo
   echo "Files are removed by the red-zone filename rules below or because their"
@@ -353,6 +405,10 @@ COMPOSE_OUT="$SCRIPT_DIR/../$BLUE_ZONE_COMPOSE_FILE"
     for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
       echo "      - $BLUE_ZONE_ROOT/$folder:/workspace/$folder"
     done
+    # Configured root files (writable, like folders — synced back on exit).
+    for rf in ${STAGED_ROOT_FILES[@]+"${STAGED_ROOT_FILES[@]}"}; do
+      [ -f "$BLUE_ZONE_ROOT/$rf" ] && echo "      - $BLUE_ZONE_ROOT/$rf:/workspace/$rf"
+    done
     # Read-only manifest of what was stripped, so Claude knows the true project
     # shape. Lives at the blue zone root, mounted into the workspace root.
     echo "      - $BLUE_ZONE_ROOT/$BLUE_ZONE_MANIFEST_FILE:/workspace/$BLUE_ZONE_MANIFEST_FILE:ro"
@@ -369,6 +425,10 @@ echo -e "   Total files: ${BOLD}$TOTAL${RESET}"
 echo -e "   Mounts:"
 for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
   echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/$folder → /workspace/$folder"
+done
+for rf in ${STAGED_ROOT_FILES[@]+"${STAGED_ROOT_FILES[@]}"}; do
+  [ -f "$BLUE_ZONE_ROOT/$rf" ] && \
+    echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/$rf → /workspace/$rf"
 done
 echo -e "   ${GREEN}•${RESET} $BLUE_ZONE_ROOT/$BLUE_ZONE_MANIFEST_FILE → /workspace/$BLUE_ZONE_MANIFEST_FILE ${BOLD}(ro)${RESET}"
 echo -e "${BOLD}────────────────────────────────────────${RESET}"

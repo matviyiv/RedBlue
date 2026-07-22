@@ -58,6 +58,15 @@ echo -e "\n${BOLD}Step 2: Validating blue zone...${RESET}"
 # call below.
 export COMPOSE_FILE="docker-compose.yml:$BLUE_ZONE_COMPOSE_FILE"
 
+# ── Ensure the node_modules cache volume is writable by the non-root user ─────
+# A `node-modules` volume created before the image pre-created
+# /workspace/node_modules (or created by an older image) is owned by root, so
+# `npm install` fails with EACCES. Fix ownership once, as root, in a throwaway
+# container — a fast no-op when it's already claude-owned.
+docker compose run --rm --no-deps --user 0 --entrypoint sh claude-code -c \
+  'd=/workspace/node_modules; [ "$(stat -c %U "$d" 2>/dev/null)" = claude ] || chown -R claude:claude "$d"' \
+  >/dev/null 2>&1 || echo "  (note: could not pre-fix node_modules volume ownership)"
+
 # ── Show mount summary ────────────────────────────────────────────────────────
 echo -e "\n${BOLD}Mounting into container (writable — changes land in $BLUE_ZONE_ROOT):${RESET}"
 for folder in "${BLUE_ZONE_FOLDERS[@]}"; do

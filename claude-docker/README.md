@@ -221,6 +221,12 @@ The **headless** container has no network by design — it reuses whatever the
 persistent `node-modules` volume already holds, so run an install interactively
 once and headless/CI runs pick it up.
 
+The volume is made writable by the container's non-root `claude` user
+automatically: the image pre-creates `/workspace/node_modules` (owned by
+`claude`) so a fresh volume seeds correctly, and `start-cli.sh` / `run-headless.sh`
+chown it on startup so a volume left root-owned by an older image self-heals — no
+`EACCES` on `npm install`. (To reset instead: `docker compose down -v`.)
+
 Installs are memory-hungry (resolving a large React Native tree, worst case with
 no lockfile). The container memory limit is **4g** by default and Node's heap is
 raised to 3 GB (`NODE_OPTIONS=--max-old-space-size=3072` in the Dockerfile) so

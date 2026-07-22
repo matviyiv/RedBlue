@@ -221,8 +221,18 @@ The **headless** container has no network by design — it reuses whatever the
 persistent `node-modules` volume already holds, so run an install interactively
 once and headless/CI runs pick it up.
 
+Installs are memory-hungry (resolving a large React Native tree, worst case with
+no lockfile). The container memory limit is **4g** by default and Node's heap is
+raised to 3 GB (`NODE_OPTIONS=--max-old-space-size=3072` in the Dockerfile) so
+`yarn install` doesn't abort with *JavaScript heap out of memory* (exit 134).
+Tune the limit with `CLAUDE_MEMORY` (e.g. `CLAUDE_MEMORY=2g` or `8g`) — keep it
+at or above the Node heap size, or the process is OOM-killed by the cgroup.
+Committing a lockfile (add `package-lock.json` / `yarn.lock` to
+`BLUE_ZONE_ROOT_FILES`) makes installs lighter and deterministic.
+
 ```bash
 docker compose down -v            # clears node_modules (and claude-home) volumes
+CLAUDE_MEMORY=8g ./scripts/start-cli.sh   # more memory for a big install
 ```
 
 ## Quick Start

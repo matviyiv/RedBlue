@@ -69,7 +69,13 @@ x-claude-common: &claude-common
   deploy:
     resources:
       limits:
-        memory: 512m
+        # Headroom for dependency installs — yarn/npm resolve large React Native
+        # trees (worst case with no lockfile) and otherwise abort with
+        # "JavaScript heap out of memory". Override for a smaller/larger host,
+        # e.g. CLAUDE_MEMORY=2g. Keep it at or above NODE_OPTIONS'
+        # --max-old-space-size (set in the Dockerfile), or Node's heap ceiling
+        # exceeds the cgroup limit and the process is OOM-killed instead.
+        memory: ${CLAUDE_MEMORY:-4g}
 
 services:
   # ─────────────────────────────────────────────────────────────

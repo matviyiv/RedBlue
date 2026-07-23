@@ -166,10 +166,22 @@ BLUE_ZONE_ALLOW_MARKER="${BLUE_ZONE_ALLOW_MARKER-fine-for-claude}"
 
 # ── Derived helpers (do not usually need editing) ────────────────────────────
 
-# Root of the staged blue zone on the host. Only the folders in
-# BLUE_ZONE_FOLDERS are mounted from here into the container; everything else
-# under this root (the snapshot, generated compose file) stays host-side.
-BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone}"
+# Project name used to namespace the staging root, so several projects can each
+# run their own blue-zone session at the same time (a terminal per project)
+# without clobbering each other's staged files or sync-back snapshot. Defaults to
+# the basename of this config's directory — i.e. the project root — sanitised to a
+# filesystem-safe slug. Override by exporting BLUE_ZONE_PROJECT before running any
+# script (e.g. two checkouts of the same repo that would otherwise share a name).
+BLUE_ZONE_PROJECT="${BLUE_ZONE_PROJECT:-$(basename "$BLUE_ZONE_CONFIG_DIR")}"
+BLUE_ZONE_PROJECT="$(printf '%s' "$BLUE_ZONE_PROJECT" | tr -c 'A-Za-z0-9._-' '-')"
+[ -n "$BLUE_ZONE_PROJECT" ] || BLUE_ZONE_PROJECT="project"
+
+# Root of the staged blue zone on the host. Per-project by default
+# (/tmp/blue-zone/<project>) so concurrent sessions for different projects stay
+# isolated. Only the folders in BLUE_ZONE_FOLDERS are mounted from here into the
+# container; everything else under this root (the snapshot) stays host-side. Set
+# BLUE_ZONE_ROOT explicitly to override the whole path at once.
+BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone/$BLUE_ZONE_PROJECT}"
 
 # Generated compose file holding the per-folder mounts. prepare-blue-zone.sh
 # writes it; start-cli.sh / run-headless.sh layer it on top of the base

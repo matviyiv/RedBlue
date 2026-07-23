@@ -1,17 +1,19 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Blue zone mounts (writable, pre-filtered by prepare-blue-zone.sh; changes land
-# in /tmp/blue-zone on the host — sync-back.sh copies back what you keep, the
-# next prepare run wipes it).
+# in /tmp/blue-zone/<project> on the host — sync-back.sh copies back what you
+# keep, the next prepare run wipes it). The staging root is namespaced per project
+# (BLUE_ZONE_PROJECT in blue-zone.config.sh) so several projects can each run a
+# session at once without clobbering each other.
 #
 # The actual per-folder mounts are NOT listed here — they are generated from
 # blue-zone.config.sh into docker-compose.blue-zone.yml by prepare-blue-zone.sh,
 # and layered on via COMPOSE_FILE by start-cli.sh / run-headless.sh. Edit
 # blue-zone.config.sh (BLUE_ZONE_FOLDERS) to change which top-level folders are
-# mounted — you do not touch this file. With the default config the generated
-# mounts are:
-#     /tmp/blue-zone/src     -> /workspace/src
-#     /tmp/blue-zone/ios     -> /workspace/ios
-#     /tmp/blue-zone/android -> /workspace/android
+# mounted — you do not touch this file. With the default config, for a project
+# named "app", the generated mounts are:
+#     /tmp/blue-zone/app/src     -> /workspace/src
+#     /tmp/blue-zone/app/ios     -> /workspace/ios
+#     /tmp/blue-zone/app/android -> /workspace/android
 #
 # Red zone - NEVER mounted:
 #     .env.* files

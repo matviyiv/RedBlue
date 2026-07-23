@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # prepare-blue-zone.sh
-# Copies the configured blue-zone folders into /tmp/blue-zone/ with red zone
-# files excluded. Run this BEFORE docker compose to ensure clean filtered mounts.
+# Copies the configured blue-zone folders into /tmp/blue-zone/<project>/ with red
+# zone files excluded. Run this BEFORE docker compose to ensure clean filtered
+# mounts. The staging root is namespaced per project (BLUE_ZONE_PROJECT /
+# BLUE_ZONE_ROOT in blue-zone.config.sh) so concurrent sessions stay isolated.
 #
 # Safe to re-run while a container is already up: it resets the staged folders in
 # place (same directory inodes) instead of deleting the root, so live bind mounts

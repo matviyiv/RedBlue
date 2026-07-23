@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # validate-blue-zone.sh
-# Scans prepared blue zone (/tmp/blue-zone) for secret leaks.
+# Scans prepared blue zone (/tmp/blue-zone/<project>) for secret leaks.
 # Run AFTER prepare-blue-zone.sh, BEFORE docker compose.
 #
 # Usage: ./scripts/validate-blue-zone.sh [--strict]

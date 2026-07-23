@@ -46,9 +46,12 @@ A shell script (`prepare-blue-zone.sh`) uses `rsync` to copy only the blue zone
 into a staging directory. A second script (`validate-blue-zone.sh`) scans it for
 any leaked secrets before Docker ever starts. Claude Code then runs in a container
 that mounts the staging directory **writable** with `network_mode: none` — Claude
-can create and edit files, but writes land in the staging copy at `/tmp/blue-zone/`,
-never directly in your repo. When the session ends, `sync-back.sh` automatically
-copies the changes into your repo, refusing to touch red-zone paths.
+can create and edit files, but writes land in the staging copy at
+`/tmp/blue-zone/<project>/`, never directly in your repo. The staging root is
+namespaced per project, so you can run a session for several projects at once
+(one terminal each) without them clobbering each other. When the session ends,
+`sync-back.sh` automatically copies the changes into your repo, refusing to touch
+red-zone paths.
 
 ---
 
@@ -129,11 +132,13 @@ RedBlue/
 
 ```
 1. prepare-blue-zone.sh
-   rsync src/ ios/ android/ → /tmp/blue-zone/
+   rsync src/ ios/ android/ → /tmp/blue-zone/<project>/
    with red zone exclusions              auto-generate BLUE_ZONE_MANIFEST.md
+   (<project> defaults to the project dir name — namespaced so multiple
+    projects can run at once; override with BLUE_ZONE_PROJECT)
 
 2. validate-blue-zone.sh
-   scan /tmp/blue-zone/ for:
+   scan /tmp/blue-zone/<project>/ for:
    • configured red-zone patterns that leaked (API/service, signing artifacts)
    • hardcoded secrets (regex patterns; test files excluded)
    • .env files and non-placeholder .env.example values
@@ -141,11 +146,11 @@ RedBlue/
    exit 1 if any violation found
 
 3. docker compose run claude-code
-   mounts:
-     /tmp/blue-zone/src     → /workspace/src     (writable)
-     /tmp/blue-zone/ios     → /workspace/ios     (writable)
-     /tmp/blue-zone/android → /workspace/android (writable)
-     BLUE_ZONE_MANIFEST.md  → /workspace/        (read-only)
+   mounts (for a project named "app"):
+     /tmp/blue-zone/app/src     → /workspace/src     (writable)
+     /tmp/blue-zone/app/ios     → /workspace/ios     (writable)
+     /tmp/blue-zone/app/android → /workspace/android (writable)
+     BLUE_ZONE_MANIFEST.md      → /workspace/        (read-only)
    network isolation:
      • headless (claude-code):  network_mode: none — no network at all
      • interactive (claude-cli): internal network + egress-proxy allowlist —
@@ -153,7 +158,7 @@ RedBlue/
    runs: claude -p "..." --allowedTools Read,Write,Edit
 
 4. sync-back.sh  (automatic when the session ends)
-   copies Claude's changes from /tmp/blue-zone back into the repo:
+   copies Claude's changes from /tmp/blue-zone/<project> back into the repo:
      • updates only files Claude was allowed to see
      • blocks new files that collide with stripped red-zone paths
      • deletes files Claude removed (only ones that were in the blue zone)
@@ -286,6 +291,17 @@ PATTERNS
 automatically re-checked after staging — no second list to keep in sync.
 Strings that must never appear anywhere go in `blue-zone-insecure-strings.txt`.
 
+### Running several projects at once
+
+The staging root is namespaced per project — `/tmp/blue-zone/<project>`, where
+`<project>` defaults to the project directory's name. Because each project stages
+into its own directory (and each project directory is its own `docker compose`
+project), you can open a terminal per project and run sessions side by side
+without them overwriting each other's staged files or sync-back snapshot. Two
+checkouts that would resolve to the same name can be separated by exporting
+`BLUE_ZONE_PROJECT=my-name` (or override the whole path with `BLUE_ZONE_ROOT`)
+before running any script.
+
 ---
 
 ## GitLab CI
@@ -313,7 +329,7 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Blue zone is verified clean | `validate-blue-zone.sh` exits 1 on any violation |
 | Container can't phone home | Headless: `network_mode: none`. Interactive: attached only to an `internal` Docker network whose sole exit is an egress proxy that allowlists only Anthropic + GitHub domains — no LAN or arbitrary-internet access |
 | Interactive session can't reach your LAN | `claude-cli` has no route off the `internal` network; the dual-homed `egress-proxy` denies every destination except the allowlisted public hosts in `proxy/filter` (Anthropic, GitHub) |
-| Repo is never written directly | Writable mounts point at the `/tmp/blue-zone` staging copy; config mounts stay `:ro` |
+| Repo is never written directly | Writable mounts point at the per-project `/tmp/blue-zone/<project>` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 

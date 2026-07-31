@@ -51,6 +51,38 @@ repository by `sync-back.sh` after the session ends — so deleting is a real,
 propagated action. Deleting a file you were only meant to edit will remove it
 from the repo, so delete deliberately.
 
+## The workspace can change under you — and may contain conflict markers
+
+You are not the only one working on this project. The developer keeps editing
+the real repository while you work here, and can pull their changes into your
+workspace mid-session. So a file you read ten minutes ago may have new content
+now — re-read before you rely on it.
+
+Those refreshes are merged, not overwritten: your edits are kept. But when you
+and the developer changed **the same lines** of the same file, the merge cannot
+decide, and the file is left with standard conflict markers:
+
+```
+<<<<<<< HEAD
+const timeout = 5000;      // ← YOUR version, what you wrote in this workspace
+=======
+const timeout = 30000;     // ← THEIR version, from the developer's repo
+>>>>>>> blue-base
+```
+
+`HEAD` is always your side. `blue-base` is always the developer's side.
+
+**Resolve them by editing the file**: pick one side, or combine them into
+something that satisfies both intents, then delete all three marker lines. Do
+not run `git` — there is no git here, and the tooling that carries your work
+back does not need it.
+
+Until the markers are gone the file is stuck: `sync-back.sh` refuses to copy a
+file containing conflict markers into the real repository, so leaving them in
+place means that file's changes — yours included — never land. If you are unsure
+which side should win, say so in your response rather than guessing silently;
+the developer can decide.
+
 ## Intentionally excluded files (do NOT ask for these)
 The following are red zone and do not exist in your workspace:
 

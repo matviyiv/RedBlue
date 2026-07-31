@@ -81,6 +81,12 @@ echo -e "  ${RED}x${RESET} ios: *.p12, *.mobileprovision, GoogleService-Info.pli
 echo -e "  ${RED}x${RESET} android: *.jks, *.keystore, google-services.json, build/"
 echo ""
 
+echo -e "${BOLD}Working alongside Claude:${RESET}"
+echo -e "  Keep editing this repo while the session runs. From another terminal,"
+echo -e "  ${GREEN}./scripts/sync-in.sh${RESET} merges your changes into the live blue zone"
+echo -e "  without discarding Claude's work (${GREEN}--dry-run${RESET} to preview first)."
+echo ""
+
 echo -e "${YELLOW}Starting Claude Code session... (Ctrl+C to exit)${RESET}\n"
 
 # When the session ends, however it ends (exit, Ctrl+C, error):

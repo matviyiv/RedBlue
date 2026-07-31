@@ -203,6 +203,43 @@ fi
 rm -f "$DENY_PATTERNS"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Check 6: No unresolved merge conflict markers in the staged files.
+#
+# sync-in.sh merges host changes into a live blue zone, and an overlapping edit
+# leaves standard <<<<<<< / >>>>>>> markers in the file for Claude to resolve.
+# Mounting a half-merged workspace is a bad starting point for a session, and in
+# CI it must never happen at all — hence a warning locally, a violation under
+# --strict. sync-back.sh independently refuses to export a file that still has
+# markers, so this is about catching it early, not about safety.
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[6] No unresolved merge conflict markers...${RESET}"
+
+CONFLICT_SCAN_DIRS=()
+for folder in "${BLUE_ZONE_FOLDERS[@]}"; do
+  [ -d "$BLUE_ZONE_ROOT/$folder" ] && CONFLICT_SCAN_DIRS+=("$BLUE_ZONE_ROOT/$folder")
+done
+for rf in ${BLUE_ZONE_ROOT_FILES[@]+"${BLUE_ZONE_ROOT_FILES[@]}"}; do
+  [ -f "$BLUE_ZONE_ROOT/$rf" ] && CONFLICT_SCAN_DIRS+=("$BLUE_ZONE_ROOT/$rf")
+done
+
+CONFLICT_HITS=""
+[ "${#CONFLICT_SCAN_DIRS[@]}" -gt 0 ] && \
+  CONFLICT_HITS=$(grep -rlE '^(<<<<<<<|>>>>>>>) ' "${CONFLICT_SCAN_DIRS[@]}" 2>/dev/null || true)
+
+if [ -n "$CONFLICT_HITS" ]; then
+  while IFS= read -r cf; do
+    [ -n "$cf" ] || continue
+    if $STRICT; then
+      fail "unresolved merge conflict in: ${cf#"$BLUE_ZONE_ROOT"/}"
+    else
+      warn "unresolved merge conflict in: ${cf#"$BLUE_ZONE_ROOT"/} (resolve it before syncing back)"
+    fi
+  done <<< "$CONFLICT_HITS"
+else
+  pass "No files contain merge conflict markers"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Summary
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""

@@ -197,6 +197,63 @@ BLUE_ZONE_COMPOSE_FILE="${BLUE_ZONE_COMPOSE_FILE:-docker-compose.blue-zone.yml}"
 # it is mounted read-only so Claude cannot alter it.
 BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
 
+# ── Two-way sync (shadow git repo) ───────────────────────────────────────────
+# The blue zone is tracked by a private "shadow" git repo so the repo and the
+# staging copy can be merged in BOTH directions instead of one overwriting the
+# other. It lets you keep editing the repo while Claude works in the container:
+#   repo → zone   ./scripts/sync-in.sh    (three-way merge into the staging copy)
+#   zone → repo   ./scripts/sync-back.sh  (three-way merge into your working tree)
+#
+# The shadow repo lives in a SIBLING of the staging root, never inside it, for
+# three reasons: BLUE_ZONE_ROOT is chmod'ed and file-counted by prepare, it is
+# scanned end-to-end by validate-blue-zone.sh, and only paths under it are ever
+# bind-mounted. Keeping the git data outside means Claude can never see a .git
+# directory and the validator never mistakes git objects for project content.
+BLUE_ZONE_STATE_DIR="${BLUE_ZONE_STATE_DIR:-${BLUE_ZONE_ROOT}.gitsync}"
+
+# The shadow repo's git directory. Its work tree is BLUE_ZONE_ROOT, passed
+# explicitly per command (git --git-dir=… --work-tree=…), so no .git exists
+# anywhere near the mounted folders.
+BLUE_ZONE_SHADOW_GIT="${BLUE_ZONE_SHADOW_GIT:-$BLUE_ZONE_STATE_DIR/shadow.git}"
+
+# Scratch work tree holding the pure projection of the repo (what prepare would
+# stage). Committed to BLUE_ZONE_BASE_REF without ever checking anything out in
+# the live staging tree, so bind mounts are never disturbed.
+BLUE_ZONE_BASE_DIR="${BLUE_ZONE_BASE_DIR:-$BLUE_ZONE_STATE_DIR/base}"
+
+# The two branches of the shadow repo:
+#   base — the repo as seen through the red-zone filter ("what the host has")
+#   work — the live staging tree, including everything Claude changed
+# Every sync is a diff or a merge between these two.
+BLUE_ZONE_BASE_REF="${BLUE_ZONE_BASE_REF:-blue-base}"
+BLUE_ZONE_WORK_REF="${BLUE_ZONE_WORK_REF:-blue-work}"
+
+# Sync engine:
+#   git    — three-way merge in both directions (default; needs git on the host)
+#   legacy — the original one-way set-arithmetic copy, no merging, no sync-in
+# Set to legacy only if the host has no usable git binary.
+BLUE_ZONE_SYNC_MODE="${BLUE_ZONE_SYNC_MODE:-git}"
+
+# Identity used for the shadow repo's commits. These never leave the host — the
+# shadow repo has no remote — but git refuses to commit without them, so they
+# are set locally rather than relying on a global git config.
+BLUE_ZONE_GIT_AUTHOR="${BLUE_ZONE_GIT_AUTHOR:-blue-zone sync}"
+BLUE_ZONE_GIT_EMAIL="${BLUE_ZONE_GIT_EMAIL:-blue-zone-sync@localhost}"
+
+# ── Merge request integration (sync-back --mr) ───────────────────────────────
+# Opt-in: `./scripts/sync-back.sh --mr` commits the synced paths to a branch and
+# opens a merge request with the GitLab CLI. Plain `sync-back.sh` stops at your
+# working tree and touches git not at all. Runs host-side only — the container's
+# egress allowlist does not include GitLab.
+BLUE_ZONE_MR_BRANCH_PREFIX="${BLUE_ZONE_MR_BRANCH_PREFIX:-ai/blue-zone}"
+
+# Target branch for the MR. Empty means "whatever branch is checked out when
+# sync-back runs", which is almost always what you want.
+BLUE_ZONE_MR_TARGET="${BLUE_ZONE_MR_TARGET:-}"
+
+# The GitLab CLI binary. Override to pin a path or wrap it.
+BLUE_ZONE_GLAB="${BLUE_ZONE_GLAB:-glab}"
+
 # Build the rsync --exclude argument array for a folder into the named array.
 # Usage: blue_zone_build_excludes <folder> <out_array_name>
 # (bash 3.2 compatible — writes into the caller's array via eval, no name-refs.)

@@ -53,6 +53,11 @@ namespaced per project, so you can run a session for several projects at once
 `sync-back.sh` automatically copies the changes into your repo, refusing to touch
 red-zone paths.
 
+You don't have to stop working while Claude does: `sync-in.sh` merges your latest
+repo changes into a live session, and `sync-back.sh` merges Claude's work back —
+neither direction overwrites the other. See
+[Working alongside Claude](#working-alongside-claude--two-way-sync).
+
 ---
 
 ## The Context Problem — and How It's Solved
@@ -95,11 +100,16 @@ RedBlue/
 │   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
 │   ├── scripts/
 │   │   ├── init.sh                 # One-time setup (prerequisites + Docker build)
-│   │   ├── prepare-blue-zone.sh    # rsync filter → /tmp/blue-zone/
+│   │   ├── prepare-blue-zone.sh    # rsync filter → /tmp/blue-zone/ (resets the zone)
 │   │   ├── validate-blue-zone.sh   # Secret leak scanner (run before Docker)
 │   │   ├── start-cli.sh            # Interactive Claude session (local dev)
 │   │   ├── run-headless.sh         # Single-prompt headless run (CI)
-│   │   └── sync-back.sh            # Copy Claude's changes back into the repo
+│   │   ├── sync-in.sh              # Merge YOUR repo changes into a live blue zone
+│   │   ├── sync-back.sh            # Merge Claude's changes back into the repo
+│   │   └── lib/                    # Shared internals (sourced, not run)
+│   │       ├── blue-zone-project.sh   #   the red-zone filter itself
+│   │       ├── blue-zone-git.sh       #   shadow git repo behind two-way sync
+│   │       └── blue-zone-manifest.sh  #   manifest + compose overlay writers
 │   ├── proxy/                      # Egress allowlist proxy (interactive sessions)
 │   │   ├── Dockerfile              #   tinyproxy on alpine
 │   │   ├── tinyproxy.conf          #   default-deny forward proxy
@@ -158,12 +168,95 @@ RedBlue/
    runs: claude -p "..." --allowedTools Read,Write,Edit
 
 4. sync-back.sh  (automatic when the session ends)
-   copies Claude's changes from /tmp/blue-zone/<project> back into the repo:
+   merges Claude's changes from /tmp/blue-zone/<project> back into the repo:
      • updates only files Claude was allowed to see
+     • three-way merges files you edited too, instead of overwriting them
      • blocks new files that collide with stripped red-zone paths
      • deletes files Claude removed (only ones that were in the blue zone)
    disable with SYNC_BACK=0; preview with ./scripts/sync-back.sh --dry-run
 ```
+
+---
+
+## Working alongside Claude — two-way sync
+
+A session used to be exclusive: `prepare-blue-zone.sh` overwrote the staging
+tree from your repo, `sync-back.sh` overwrote your repo from the staging tree,
+and whoever ran last won. Editing the repo during a session meant losing one
+side or the other.
+
+Both directions are now **merges**, so you and Claude can work at the same time:
+
+```bash
+# Terminal 1 — the session
+./scripts/start-cli.sh
+
+# Terminal 2 — you, still working in the repo
+vim src/screens/HomeScreen.tsx
+./scripts/sync-in.sh              # push your changes into the live blue zone
+./scripts/sync-in.sh --dry-run    # …or see what would come in first
+```
+
+`sync-in.sh` rewrites only the files that actually changed on your side. Files
+Claude is working on are left exactly as he left them, and the running container
+picks the new content up live. When you have both edited the *same lines*, the
+file gets ordinary conflict markers and Claude resolves them in-session — the
+`CLAUDE.md` template teaches him how, and `sync-back.sh` refuses to export a
+file whose markers are still there.
+
+| Script | Direction | Effect |
+|---|---|---|
+| `prepare-blue-zone.sh` | repo → zone | **Reset.** Staging tree is made to match the repo; unsynced work in the zone is discarded. Use it to start a session. |
+| `sync-in.sh` | repo → zone | **Merge.** Your changes come in, Claude's work stays. Use it during a session. |
+| `sync-back.sh` | zone → repo | **Merge.** Claude's changes go out, your concurrent edits stay. |
+
+### How it works
+
+The staging tree is tracked by a private *shadow git repo* with two branches:
+`blue-base` (your repo, seen through the red-zone filter) and `blue-work` (the
+live staging tree). Every sync is a diff or a merge between them, which is what
+lets the tooling tell "the host changed this" apart from "Claude changed this".
+
+The shadow repo lives in a **sibling** of the staging root
+(`/tmp/blue-zone/<project>.gitsync/`), never inside it. Only paths under
+`/tmp/blue-zone/<project>/` are ever mounted, so there is no `.git` anywhere the
+container can reach and the "never run git in `/workspace`" rule still holds.
+It has no remote, is never pushed, and deleting it is always safe — the next
+`prepare-blue-zone.sh` rebuilds it.
+
+Going the other way, `sync-back.sh` merges with `git merge-file`, which needs no
+object database. Your concurrent edit is merged correctly whether or not you
+committed it, and even if the project isn't a git repository at all.
+
+Set `BLUE_ZONE_SYNC_MODE=legacy` to fall back to the original one-way copy on a
+host with no usable `git`. `sync-in.sh` is unavailable in that mode, and
+sync-back cannot merge concurrent edits.
+
+### Opening a merge request (`--mr`)
+
+By default `sync-back.sh` stops at your working tree — the changes land in your
+checkout and you review and commit them yourself. Git is only touched when you
+ask for it:
+
+```bash
+./scripts/sync-back.sh --mr                        # branch, commit, push, open an MR
+./scripts/sync-back.sh --mr --mr-branch ai/review-1 # name the branch yourself
+./scripts/sync-back.sh --mr --mr-target develop     # target a specific branch
+./scripts/sync-back.sh --merge                      # …and merge when the pipeline passes
+./scripts/sync-back.sh --mr --dry-run               # show the branch/target/body, change nothing
+```
+
+This commits **only the paths that were synced** — never `git add -A` — so
+unrelated work in your tree stays out of the commit, and refuses to run at all
+if your index already has staged changes. The MR body lists the change set and
+states that Claude worked against a filtered copy, so reviewers know the
+red-zone files were never visible to it.
+
+It runs entirely on the host: the container's egress allowlist covers Anthropic,
+GitHub and the npm registries — not GitLab — so this could not work from inside
+the container even if we wanted it to. Every preflight failure degrades
+gracefully (no `glab`, not authenticated, origin isn't GitLab, push rejected):
+you get a clear message, and the changes are already in your working tree.
 
 ---
 
@@ -252,6 +345,7 @@ All checks must pass before Docker starts:
 | 3 | `.env` files anywhere in the blue zone |
 | 4 | `.env.example` has no real values |
 | 5 | Content-denylist strings (from `blue-zone-insecure-strings.txt`) that survived into the blue zone |
+| 6 | Unresolved merge conflict markers left by a `sync-in.sh` refresh (warning locally, violation under `--strict`) |
 
 ---
 

@@ -199,7 +199,7 @@ blue_zone_write_manifest() {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Generate the docker-compose overlay that mounts each configured folder into
-# both Claude services. Layered on top of docker-compose.yml via COMPOSE_FILE by
+# both Claude services. Layered on top of docker-compose.ai-sandbox.yml via COMPOSE_FILE by
 # start-cli.sh / run-headless.sh. Regenerated every run — never edit by hand.
 #
 # Usage: blue_zone_write_overlay <project-root>

@@ -3,15 +3,10 @@
 ## Scope
 You are working on a **React Native application**.
 Your working directory is `/workspace`.
-You have access to these directories:
+You have access to three directories:
 - `/workspace/src` - JavaScript/TypeScript app code
 - `/workspace/ios` - Swift/Objective-C native iOS source
 - `/workspace/android` - Kotlin/Java native Android source
-- `/workspace/__tests__` - Jest test suites
-
-You can also read and edit the package manifests:
-- `/workspace/package.json` - scripts and dependencies (writable — update libs here)
-- `/workspace/yarn.lock` - resolved dependency lockfile (writable — kept in sync by yarn)
 
 ## Stack
 - React Native (TypeScript)
@@ -25,9 +20,7 @@ You can also read and edit the package manifests:
 - Read and analyze files inside `/workspace/src`, `/workspace/ios`, `/workspace/android`
 - Suggest code improvements, bug fixes, refactors across JS and native layers
 - Review native module bridge code (Swift <-> RN, Kotlin <-> RN)
-- Write or update test files in `/workspace/__tests__`
-- Run the test suite (`yarn test`) and linter (`yarn lint`)
-- Update dependencies in `package.json` and let yarn update `yarn.lock`
+- Write or update test files
 - Reference `/workspace/.env.example` for environment variable **names only**
 
 ## What you MUST NOT do
@@ -113,44 +106,21 @@ The following are red zone and do not exist in your workspace:
 - `*.properties` files (keystore.properties, signing.properties)
 - `build/`, `.gradle/` - build artifacts
 
-## API / Service Layer Contracts
+If you need to understand how data is fetched, reference only
+TypeScript interface/type definitions in `src/types/` instead.
 
-The API, service, and HTTP client implementation files are red zone and do not
-exist in your workspace. Their TypeScript interfaces are in `src/types/` — use
-these to write correct code without guessing at endpoint shapes or function signatures.
+## Blue zone manifest (`/workspace/BLUE_ZONE_MANIFEST.md`)
 
-### Available type files
+An auto-generated, read-only inventory lives at `/workspace/BLUE_ZONE_MANIFEST.md`.
+It lists every file that was **stripped** from the project before this workspace
+was mounted — the files that exist on the host but are deliberately absent here
+(red zone) — plus the rules that removed them.
 
-**`src/types/auth.types.ts`** — Authentication layer
-- Interfaces: `LoginRequest`, `LoginResponse`, `AuthError`, `AuthSession`
-- Contract: `IAuthApi` with `login()`, `logout()`, `refreshSession()`
-- Import: `import type { LoginRequest, IAuthApi } from '../types/auth.types';`
-
-**`src/types/jitsi.types.ts`** — Video conferencing service
-- Interfaces: `JitsiRoomOptions`, `JitsiParticipant`, `JitsiRoomState`
-- Contract: `IJitsiService` with `joinRoom()`, `leaveRoom()`, `toggleAudio()`, `toggleVideo()`
-- Import: `import type { JitsiRoomOptions, IJitsiService } from '../types/jitsi.types';`
-
-**`src/types/http.types.ts`** — HTTP client layer
-- Generic envelopes: `ApiResponse<T>`, `PaginatedResponse<T>`, `ApiErrorResponse`
-- Contract: `HttpClientInstance` describing the pre-configured client API
-- Import: `import type { ApiResponse, ApiErrorResponse } from '../types/http.types';`
-
-**`src/types/index.ts`** — re-exports all of the above for convenience.
-
-### Rules for working with the API layer
-
-- DO use the interfaces in `src/types/` to type props, state, hooks, and test fixtures
-- DO write Jest tests that mock `IAuthApi`, `IJitsiService` using the shapes in `src/types/`
-- DO NOT invent endpoint paths — they are red zone and not accessible here
-- DO NOT import from `../api/`, `../services/`, or `../utils/httpClient` — those files do not exist in your workspace
-- When wiring a component to the API, accept the service as a prop typed against the interface (dependency injection), rather than importing the concrete module
-
-### BLUE_ZONE_MANIFEST.md
-
-`/workspace/BLUE_ZONE_MANIFEST.md` lists every file that was stripped from `src/`
-before this workspace was mounted. Read it to see what exists on the host but is
-not visible here. Do not edit it — it is auto-generated on each run.
+Treat it as authoritative:
+- Use it to learn the true shape of the project: know that these files exist so
+  you code against their contracts and do not recreate them.
+- If a file appears there, it is red zone — do **not** ask for its contents.
+- It is regenerated on every run and mounted read-only, so do not edit it.
 
 ## Code Style
 - TypeScript strict mode

@@ -4,7 +4,7 @@
 # Scans prepared blue zone (/tmp/blue-zone/<project>) for secret leaks.
 # Run AFTER prepare-blue-zone.sh, BEFORE docker compose.
 #
-# Usage: ./scripts/validate-blue-zone.sh [--strict]
+# Usage: ./ai-scripts/validate-blue-zone.sh [--strict]
 # Exit codes: 0 = clean, 1 = violations found
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -41,7 +41,7 @@ pass() { echo -e "  ${GREEN}OK${RESET} $1"; }
 # ── Guard: prepare must have run first ───────────────────────────────────────
 if [ ! -d "$BLUE_ZONE_ROOT" ]; then
   echo -e "${RED}Blue zone not found at $BLUE_ZONE_ROOT.${RESET}"
-  echo    "Run ./scripts/prepare-blue-zone.sh first."
+  echo    "Run ./ai-scripts/prepare-blue-zone.sh first."
   exit 1
 fi
 

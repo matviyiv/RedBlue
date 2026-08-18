@@ -7,9 +7,9 @@
 # changes are merged into the staging tree that the running container is looking
 # at, WITHOUT discarding anything Claude has written.
 #
-#   ./scripts/sync-in.sh            merge repo changes into the blue zone
-#   ./scripts/sync-in.sh --dry-run  show what would come in, change nothing
-#   ./scripts/sync-in.sh --abort    abandon a half-finished merge
+#   ./ai-scripts/sync-in.sh            merge repo changes into the blue zone
+#   ./ai-scripts/sync-in.sh --dry-run  show what would come in, change nothing
+#   ./ai-scripts/sync-in.sh --abort    abandon a half-finished merge
 #
 # How it differs from prepare-blue-zone.sh: prepare RESETS the staging tree to
 # match the repo, throwing away unsynced work. sync-in MERGES. Use prepare to
@@ -76,13 +76,13 @@ fi
 
 if [ ! -d "$BLUE_ZONE_ROOT" ]; then
   echo -e "${YELLOW}No blue zone at $BLUE_ZONE_ROOT.${RESET}"
-  echo "Run ./scripts/prepare-blue-zone.sh first."
+  echo "Run ./ai-scripts/prepare-blue-zone.sh first."
   exit 1
 fi
 
 if ! bz_shadow_ready; then
   echo -e "${YELLOW}This blue zone was staged before two-way sync existed.${RESET}"
-  echo "Run ./scripts/prepare-blue-zone.sh once to record a baseline, then"
+  echo "Run ./ai-scripts/prepare-blue-zone.sh once to record a baseline, then"
   echo "sync-in will work for the rest of the session."
   exit 1
 fi
@@ -101,7 +101,7 @@ fi
 
 if bz_merge_in_progress; then
   echo -e "${RED}A previous merge is still unfinished in the shadow repo.${RESET}"
-  echo "Run './scripts/sync-in.sh --abort' to discard it, then try again."
+  echo "Run './ai-scripts/sync-in.sh --abort' to discard it, then try again."
   exit 1
 fi
 

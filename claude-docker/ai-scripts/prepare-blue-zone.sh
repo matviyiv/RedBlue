@@ -8,7 +8,7 @@
 #
 # This is the RESET: it makes the staging tree match the repo exactly, so any
 # unsynced work in the blue zone is discarded. To pull host changes into a live
-# session WITHOUT discarding Claude's work, use ./scripts/sync-in.sh instead —
+# session WITHOUT discarding Claude's work, use ./ai-scripts/sync-in.sh instead —
 # that merges rather than overwrites.
 #
 # Safe to re-run while a container is already up: it resets the staged folders in
@@ -18,7 +18,7 @@
 # The folder list and exclusion rules come from blue-zone.config.sh — edit that
 # file to adapt the blue zone to your project. This script is project-agnostic.
 #
-# Usage: ./scripts/prepare-blue-zone.sh
+# Usage: ./ai-scripts/prepare-blue-zone.sh
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -77,7 +77,7 @@ if bz_git_mode; then
   bz_shadow_init
   bz_commit_work "prepare: projection of $BLUE_ZONE_PROJECT at $(date -u '+%Y-%m-%d %H:%M:%SZ')" || true
   bz_set_base_to_work
-  echo -e "  ${GREEN}✓ baseline recorded${RESET} — ./scripts/sync-in.sh refreshes the zone without losing Claude's work\n"
+  echo -e "  ${GREEN}✓ baseline recorded${RESET} — ./ai-scripts/sync-in.sh refreshes the zone without losing Claude's work\n"
 else
   echo -e "${YELLOW}[sync] git not available (or BLUE_ZONE_SYNC_MODE=legacy)${RESET}"
   echo -e "${YELLOW}       one-way copy only: sync-in.sh is unavailable and sync-back.sh${RESET}"

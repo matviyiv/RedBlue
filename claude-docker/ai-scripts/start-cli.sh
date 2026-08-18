@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # start-cli.sh — Start interactive Claude Code session (blue zone only)
-# Usage: ./scripts/start-cli.sh            start a session (state persists)
-#        ./scripts/start-cli.sh --clear    wipe persisted Claude state
+# Usage: ./ai-scripts/start-cli.sh            start a session (state persists)
+#        ./ai-scripts/start-cli.sh --clear    wipe persisted Claude state
 #                                          (login, onboarding, session history)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -48,15 +48,15 @@ esac
 
 # ── Prepare and validate blue zone ───────────────────────────────────────────
 echo -e "${BOLD}Step 1: Preparing blue zone...${RESET}"
-./scripts/prepare-blue-zone.sh
+./ai-scripts/prepare-blue-zone.sh
 
 echo -e "\n${BOLD}Step 2: Validating blue zone...${RESET}"
-./scripts/validate-blue-zone.sh
+./ai-scripts/validate-blue-zone.sh
 
 # Layer the generated per-folder mounts (docker-compose.blue-zone.yml, written
 # by prepare-blue-zone.sh) on top of the base compose file for every compose
 # call below.
-export COMPOSE_FILE="docker-compose.yml:$BLUE_ZONE_COMPOSE_FILE"
+export COMPOSE_FILE="docker-compose.ai-sandbox.yml:$BLUE_ZONE_COMPOSE_FILE"
 
 # ── Ensure the node_modules cache volume is writable by the non-root user ─────
 # A `node-modules` volume created before the image pre-created
@@ -83,7 +83,7 @@ echo ""
 
 echo -e "${BOLD}Working alongside Claude:${RESET}"
 echo -e "  Keep editing this repo while the session runs. From another terminal,"
-echo -e "  ${GREEN}./scripts/sync-in.sh${RESET} merges your changes into the live blue zone"
+echo -e "  ${GREEN}./ai-scripts/sync-in.sh${RESET} merges your changes into the live blue zone"
 echo -e "  without discarding Claude's work (${GREEN}--dry-run${RESET} to preview first)."
 echo ""
 
@@ -96,17 +96,17 @@ echo -e "${YELLOW}Starting Claude Code session... (Ctrl+C to exit)${RESET}\n"
 #      left running after the session.
 cleanup() {
   echo ""
-  [ "${SYNC_BACK:-1}" != "0" ] && ./scripts/sync-back.sh
+  [ "${SYNC_BACK:-1}" != "0" ] && ./ai-scripts/sync-back.sh
   docker compose rm -sf egress-proxy >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 # claude-cli is attached only to the internal `egress` network; its sole route
 # out is the egress-proxy allowlist. It cannot reach your LAN or any other host.
-# See docker-compose.yml + proxy/ for details.
+# See docker-compose.ai-sandbox.yml + ai-proxy/ for details.
 echo -e "${GREEN}Network: isolated — egress restricted to the proxy allowlist (no LAN access).${RESET}\n"
 
-# Recreate the proxy from the current proxy/filter + proxy/tinyproxy.conf so any
+# Recreate the proxy from the current ai-proxy/filter + ai-proxy/tinyproxy.conf so any
 # allowlist edits take effect immediately (the config is mounted, not baked in).
 docker compose up -d --force-recreate egress-proxy
 

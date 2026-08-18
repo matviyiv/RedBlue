@@ -41,6 +41,6 @@ print_auth_help() {
   echo "Authenticate with any ONE of the following:"
   echo "  1. Subscription token run 'claude setup-token' on the host, then:"
   echo "                        export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat..."
-  echo "  2. Interactive login  ./scripts/start-cli.sh and run /login once —"
+  echo "  2. Interactive login  ./ai-scripts/start-cli.sh and run /login once —"
   echo "                        credentials persist in the claude-home volume"
 }

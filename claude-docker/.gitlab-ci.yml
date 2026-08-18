@@ -26,7 +26,7 @@ build-claude-image:
   services:
     - docker:24-dind
   script:
-    - docker build --platform linux/amd64 --tag $CLAUDE_IMAGE --file Dockerfile .
+    - docker build --platform linux/amd64 --tag $CLAUDE_IMAGE --file Dockerfile.ai-sandbox .
     - docker save $CLAUDE_IMAGE | gzip > claude-image.tar.gz
   artifacts:
     paths:
@@ -43,7 +43,7 @@ prepare-blue-zone:
   before_script:
     - apk add --no-cache rsync bash
   script:
-    - ./scripts/prepare-blue-zone.sh
+    - ./ai-scripts/prepare-blue-zone.sh
   artifacts:
     # Pass filtered blue zone to review jobs
     paths:
@@ -61,7 +61,7 @@ validate-blue-zone:
   before_script:
     - apk add --no-cache bash grep git
   script:
-    - ./scripts/validate-blue-zone.sh --strict
+    - ./ai-scripts/validate-blue-zone.sh --strict
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -101,7 +101,7 @@ claude-security-review:
         --env CI=true \
         "${VOLS[@]}" \
         --volume "$(pwd)/.env.example:/workspace/.env.example:ro" \
-        --volume "$(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro" \
+        --volume "$(pwd)/ai-scripts/CLAUDE.md:/workspace/CLAUDE.md:ro" \
         --workdir /workspace \
         "$CLAUDE_IMAGE" \
           -p "Review all files in $TARGETS for: security vulnerabilities, hardcoded secrets or credentials, and unsafe API usage. Output as JSON: [{file, severity, description}]" \
@@ -159,7 +159,7 @@ claude-code-review:
         --env CI=true \
         "${VOLS[@]}" \
         --volume "$(pwd)/.env.example:/workspace/.env.example:ro" \
-        --volume "$(pwd)/.claude/CLAUDE.md:/workspace/CLAUDE.md:ro" \
+        --volume "$(pwd)/ai-scripts/CLAUDE.md:/workspace/CLAUDE.md:ro" \
         --workdir /workspace \
         "$CLAUDE_IMAGE" \
           -p "Review these changed files for bugs, type errors, and best-practice violations: $CHANGED. Be concise and actionable." \

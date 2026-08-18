@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # init.sh — One-time setup for Claude Code blue zone Docker environment
-# Usage: ./scripts/init.sh
+# Usage: ./ai-scripts/init.sh
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -46,14 +46,14 @@ else
     echo -e "${YELLOW}Skipped - no problem. Alternative login options:${RESET}"
     echo    "  • Claude Pro/Max subscription: run 'claude setup-token' and"
     echo    "    export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat..."
-    echo    "  • Or just run ./scripts/start-cli.sh and log in with /login —"
+    echo    "  • Or just run ./ai-scripts/start-cli.sh and log in with /login —"
     echo    "    credentials persist in the claude-home Docker volume"
   fi
 fi
 
 # ── 3. Make scripts executable ────────────────────────────────────────────────
 echo -e "\n${BOLD}[3/6] Setting script permissions...${RESET}"
-chmod +x scripts/*.sh
+chmod +x ai-scripts/*.sh
 echo -e "${GREEN}Scripts are executable${RESET}"
 
 # ── 4. Create .env.example if missing ────────────────────────────────────────
@@ -96,8 +96,8 @@ docker compose build claude-code
 echo -e "\n${GREEN}${BOLD}Init complete!${RESET}"
 echo ""
 echo "  Next steps:"
-echo "  • Interactive session : ./scripts/start-cli.sh"
-echo "  • Headless run        : ./scripts/run-headless.sh \"Review src/ for bugs\""
-echo "  • Validate only       : ./scripts/validate-blue-zone.sh"
-echo "  • Prepare only        : ./scripts/prepare-blue-zone.sh"
+echo "  • Interactive session : ./ai-scripts/start-cli.sh"
+echo "  • Headless run        : ./ai-scripts/run-headless.sh \"Review src/ for bugs\""
+echo "  • Validate only       : ./ai-scripts/validate-blue-zone.sh"
+echo "  • Prepare only        : ./ai-scripts/prepare-blue-zone.sh"
 echo ""

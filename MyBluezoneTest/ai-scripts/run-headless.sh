@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # run-headless.sh — Run any Claude Code prompt in headless/CI mode
-# Usage: ./scripts/run-headless.sh "Review src/ for TypeScript errors"
-#        ./scripts/run-headless.sh "Review ios/ native modules" --output-format json
+# Usage: ./ai-scripts/run-headless.sh "Review src/ for TypeScript errors"
+#        ./ai-scripts/run-headless.sh "Review ios/ native modules" --output-format json
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -47,14 +47,14 @@ echo -e "Prompt: ${BOLD}${PROMPT}${RESET}\n"
 
 # ── Prepare and validate blue zone ───────────────────────────────────────────
 echo -e "${BOLD}[1/3] Preparing blue zone...${RESET}"
-./scripts/prepare-blue-zone.sh
+./ai-scripts/prepare-blue-zone.sh
 
 echo -e "${BOLD}[2/3] Validating blue zone...${RESET}"
-./scripts/validate-blue-zone.sh
+./ai-scripts/validate-blue-zone.sh
 
 # Layer the generated per-folder mounts (docker-compose.blue-zone.yml, written
 # by prepare-blue-zone.sh) on top of the base compose file.
-export COMPOSE_FILE="docker-compose.yml:$BLUE_ZONE_COMPOSE_FILE"
+export COMPOSE_FILE="docker-compose.ai-sandbox.yml:$BLUE_ZONE_COMPOSE_FILE"
 
 # Ensure the node_modules cache volume is writable by the non-root user. A volume
 # created before the image pre-created /workspace/node_modules (or by an older
@@ -77,7 +77,7 @@ docker compose run --rm \
 # Sync any files Claude wrote back into the repo. Set SYNC_BACK=0 to disable.
 if [ "${SYNC_BACK:-1}" != "0" ]; then
   echo ""
-  ./scripts/sync-back.sh
+  ./ai-scripts/sync-back.sh
 fi
 
 echo -e "\n${GREEN}Done${RESET}"

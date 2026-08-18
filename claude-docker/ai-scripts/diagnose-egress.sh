@@ -11,8 +11,8 @@
 # claude-cli is never started, so there is no crashing container to race against.
 #
 # Usage:
-#   ./scripts/diagnose-egress.sh                 # probe the default host set
-#   ./scripts/diagnose-egress.sh example.org …   # also probe extra hosts
+#   ./ai-scripts/diagnose-egress.sh                 # probe the default host set
+#   ./ai-scripts/diagnose-egress.sh example.org …   # also probe extra hosts
 #
 # The proxy is left running afterwards so you can inspect it further:
 #   docker compose logs -f egress-proxy
@@ -44,7 +44,7 @@ echo -e "${BOLD}[1/4] (Re)building and starting egress-proxy...${RESET}"
 docker compose up -d --build --force-recreate egress-proxy
 
 # ── 2. Show the active allowlist as the RUNNING container sees it ─────────────
-# (This is the mounted proxy/filter — if a host you expect is missing here, the
+# (This is the mounted ai-proxy/filter — if a host you expect is missing here, the
 #  running proxy is stale or your working copy is out of date.)
 echo -e "\n${BOLD}[2/4] Active allowlist patterns inside the running proxy:${RESET}"
 docker compose exec -T egress-proxy \
@@ -87,9 +87,9 @@ echo -e "${BOLD}Reading the result:${RESET}"
 echo -e "  • ${GREEN}platform.claude.com = ALLOW${RESET}, but Claude still fails → likely an"
 echo -e "    account/region issue, not the proxy (see the supported-countries link)."
 echo -e "  • ${RED}platform.claude.com = BLOCKED${RESET} (403) → the allowlist in step [2] is"
-echo -e "    missing 'claude.com'. Add it to proxy/filter and re-run this script."
+echo -e "    missing 'claude.com'. Add it to ai-proxy/filter and re-run this script."
 echo -e "  • ${YELLOW}host = DNS/NET${RESET} (5xx) → the allowlist already permits it; it just"
 echo -e "    doesn't resolve or isn't reachable. An allowlist change won't help, and"
 echo -e "    for telemetry hosts (statsig.*) it's harmless — Claude works without them."
 echo -e "  • ${RED}example.com = ALLOW${RESET} → the filter isn't being applied at all"
-echo -e "    (check FilterDefaultDeny / that proxy/filter is mounted)."
+echo -e "    (check FilterDefaultDeny / that ai-proxy/filter is mounted)."

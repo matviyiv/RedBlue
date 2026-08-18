@@ -185,7 +185,7 @@ BLUE_ZONE_ROOT="${BLUE_ZONE_ROOT:-/tmp/blue-zone/$BLUE_ZONE_PROJECT}"
 
 # Generated compose file holding the per-folder mounts. prepare-blue-zone.sh
 # writes it; start-cli.sh / run-headless.sh layer it on top of the base
-# docker-compose.yml via COMPOSE_FILE. Regenerated every prepare run.
+# docker-compose.ai-sandbox.yml via COMPOSE_FILE. Regenerated every prepare run.
 BLUE_ZONE_COMPOSE_FILE="${BLUE_ZONE_COMPOSE_FILE:-docker-compose.blue-zone.yml}"
 
 # Blue zone manifest — a Claude-readable inventory that prepare-blue-zone.sh
@@ -201,8 +201,8 @@ BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
 # The blue zone is tracked by a private "shadow" git repo so the repo and the
 # staging copy can be merged in BOTH directions instead of one overwriting the
 # other. It lets you keep editing the repo while Claude works in the container:
-#   repo → zone   ./scripts/sync-in.sh    (three-way merge into the staging copy)
-#   zone → repo   ./scripts/sync-back.sh  (three-way merge into your working tree)
+#   repo → zone   ./ai-scripts/sync-in.sh    (three-way merge into the staging copy)
+#   zone → repo   ./ai-scripts/sync-back.sh  (three-way merge into your working tree)
 #
 # The shadow repo lives in a SIBLING of the staging root, never inside it, for
 # three reasons: BLUE_ZONE_ROOT is chmod'ed and file-counted by prepare, it is
@@ -241,7 +241,7 @@ BLUE_ZONE_GIT_AUTHOR="${BLUE_ZONE_GIT_AUTHOR:-blue-zone sync}"
 BLUE_ZONE_GIT_EMAIL="${BLUE_ZONE_GIT_EMAIL:-blue-zone-sync@localhost}"
 
 # ── Merge request integration (sync-back --mr) ───────────────────────────────
-# Opt-in: `./scripts/sync-back.sh --mr` commits the synced paths to a branch and
+# Opt-in: `./ai-scripts/sync-back.sh --mr` commits the synced paths to a branch and
 # opens a merge request with the GitLab CLI. Plain `sync-back.sh` stops at your
 # working tree and touches git not at all. Runs host-side only — the container's
 # egress allowlist does not include GitLab.

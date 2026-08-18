@@ -4,10 +4,10 @@
 #
 # Runs automatically after start-cli.sh / run-headless.sh sessions
 # (set SYNC_BACK=0 to disable). Can also be run manually:
-#   ./scripts/sync-back.sh                 apply changes to your working tree
-#   ./scripts/sync-back.sh --dry-run       show what would change
-#   ./scripts/sync-back.sh --mr            also branch, commit, push, open an MR
-#   ./scripts/sync-back.sh --mr --merge    …and merge it when the pipeline passes
+#   ./ai-scripts/sync-back.sh                 apply changes to your working tree
+#   ./ai-scripts/sync-back.sh --dry-run       show what would change
+#   ./ai-scripts/sync-back.sh --mr            also branch, commit, push, open an MR
+#   ./ai-scripts/sync-back.sh --mr --merge    …and merge it when the pipeline passes
 #
 # By default this stops at your working tree: the changes land in your checkout
 # and you review and commit them yourself. Git is only touched with --mr.
@@ -154,7 +154,7 @@ sync_back_git() {
 
   if bz_merge_in_progress; then
     echo -e "${RED}The blue zone has an unfinished merge.${RESET}"
-    echo "Run './scripts/sync-in.sh --abort' first, then sync back."
+    echo "Run './ai-scripts/sync-in.sh --abort' first, then sync back."
     exit 1
   fi
 

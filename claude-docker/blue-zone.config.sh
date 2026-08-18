@@ -302,10 +302,12 @@ blue_zone_strip_allow_marked() {
 }
 
 # Emit the lines of <file> that contain a denylist string (from <pattern_file>)
-# but are NOT annotated with the allow marker. Empty output means every hit in
-# the file is a reviewed exception, so the file may stay in the blue zone.
+# but are NOT annotated with the allow marker, prefixed "lineno:content" (grep
+# -n) so callers can report where the hit was found, not just which file.
+# Empty output means every hit in the file is a reviewed exception, so the
+# file may stay in the blue zone.
 # Usage: blue_zone_unmarked_denylist_hits <pattern_file> <file>
 blue_zone_unmarked_denylist_hits() {
   local pattern_file="$1" file="$2"
-  grep -aiFf "$pattern_file" -- "$file" 2>/dev/null | blue_zone_strip_allow_marked
+  grep -naiFf "$pattern_file" -- "$file" 2>/dev/null | blue_zone_strip_allow_marked
 }

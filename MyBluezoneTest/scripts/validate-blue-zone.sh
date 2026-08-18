@@ -121,14 +121,16 @@ TEST_EXCLUDES=(
 SECRET_FOUND=0
 for pattern in "${SECRET_PATTERNS[@]}"; do
   # Match with line context (file:line:text) so we can discount lines annotated
-  # with the allow marker, then collapse what remains back to unique filenames.
+  # with the allow marker, then collapse what remains to unique file:line pairs
+  # so a violation points at exactly where the pattern was found, not just
+  # which file.
   MATCHES=$(grep -rniE -e "$pattern" "$BLUE_ZONE_ROOT/" \
     --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
     --include="*.swift" --include="*.m" --include="*.kt" --include="*.java" \
     --include="*.json" --include="*.xml" \
     2>/dev/null | blue_zone_strip_allow_marked \
     "${TEST_EXCLUDES[@]}" \
-    | cut -d: -f1 | sort -u | tr '\n' ' ' | sed 's/ *$//' || true)
+    | cut -d: -f1,2 | sort -t: -k1,1 -k2,2n -u | tr '\n' ' ' | sed 's/ *$//' || true)
   if [ -n "$MATCHES" ]; then
     fail "Secret pattern '$pattern' found in: $MATCHES"
     SECRET_FOUND=1
@@ -193,8 +195,10 @@ else
       [ -n "$hf" ] || continue
       # Ignore files whose only hits are on allow-marked lines — a reviewed
       # exception, not a leak.
-      [ -z "$(blue_zone_unmarked_denylist_hits "$DENY_PATTERNS" "$hf")" ] && continue
-      fail "denylisted string present in staged file: ${hf#"$BLUE_ZONE_ROOT"/}"
+      UNMARKED_HITS="$(blue_zone_unmarked_denylist_hits "$DENY_PATTERNS" "$hf")"
+      [ -z "$UNMARKED_HITS" ] && continue
+      HIT_LINES="$(printf '%s\n' "$UNMARKED_HITS" | cut -d: -f1 | sort -nu | tr '\n' ',' | sed 's/,$//')"
+      fail "denylisted string present in staged file: ${hf#"$BLUE_ZONE_ROOT"/} (line(s): $HIT_LINES)"
       DENY_REAL=$((DENY_REAL + 1))
     done <<< "$DENY_HITS"
   fi

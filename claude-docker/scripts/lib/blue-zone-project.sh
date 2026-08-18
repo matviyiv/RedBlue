@@ -173,7 +173,8 @@ blue_zone_project_into() {
         fi
 
         HIT="$(printf '%s\n' "$UNMARKED" | grep -aoiFf "$PATTERN_FILE" 2>/dev/null | sort -u | head -3 | tr '\n' ',' | sed 's/,$//')"
-        echo -e "  ${RED}✗ removed${RESET} $rel ${RED}(matched: ${HIT:-forbidden string})${RESET}"
+        LINES="$(printf '%s\n' "$UNMARKED" | cut -d: -f1 | sort -nu | tr '\n' ',' | sed 's/,$//')"
+        echo -e "  ${RED}✗ removed${RESET} $rel ${RED}(matched: ${HIT:-forbidden string} on line(s): ${LINES:-?})${RESET}"
         rm -f "$f"
         DENY_REMOVED=$((DENY_REMOVED + 1))
       done < <(grep -rliaFf "$PATTERN_FILE" "${SCAN_DIRS[@]}" 2>/dev/null || true)

@@ -237,19 +237,24 @@ EXISTING_ARMS="$(awk '
 # check below matches correctly.
 EXISTING_ARMS_SP=" $(printf '%s ' $EXISTING_ARMS) "
 
-STUB_ARMS=""
+# Written to a temp file rather than passed as an `awk -v` value — a -v
+# assignment containing raw embedded newlines is not portable (behavior
+# differs across awk implementations, e.g. macOS's bundled awk vs. gawk/mawk),
+# so the stub arms are read back in via getline instead.
+STUB_ARMS_FILE="$(mktemp)"
 for f in ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"}; do
   case "$EXISTING_ARMS_SP" in *" $f "*) continue ;; esac
-  STUB_ARMS+="    ${f})
-      # No folder-specific red-zone rules configured yet for \"${f}\" — only
-      # the common excludes above apply. Add rsync --exclude patterns here
-      # (see src/ios/android above for examples) for anything in ${f}/ that
-      # must never reach Claude.
-      : ;;
-"
+  {
+    printf '    %s)\n' "$f"
+    printf '      # No folder-specific red-zone rules configured yet for "%s" — only\n' "$f"
+    printf '      # the common excludes above apply. Add rsync --exclude patterns here\n'
+    printf '      # (see src/ios/android above for examples) for anything in %s/ that\n' "$f"
+    printf '      # must never reach Claude.\n'
+    printf '      : ;;\n'
+  } >> "$STUB_ARMS_FILE"
 done
 
-awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms="$STUB_ARMS" '
+awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms_file="$STUB_ARMS_FILE" '
   /^BLUE_ZONE_FOLDERS=/ { print folders_line; next }
   /^BLUE_ZONE_ROOT_FILES=/ { print rootfiles_line; next }
   /^BLUE_ZONE_COMMON_EXCLUDES=\(/ {
@@ -258,9 +263,13 @@ awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v exclu
     next
   }
   in_excludes { if ($0 ~ /^\)/) in_excludes = 0; next }
-  /^    \*\)/ { if (stub_arms != "") printf "%s", stub_arms }
+  /^    \*\)/ {
+    while ((getline stub_line < stub_arms_file) > 0) print stub_line
+    close(stub_arms_file)
+  }
   { print }
 ' "$SETUP_SRC/blue-zone.config.sh" > "$TARGET_DIR/blue-zone.config.sh"
+rm -f "$STUB_ARMS_FILE"
 echo -e "${GREEN}  BLUE_ZONE_FOLDERS=(${FOLDERS_ARR[*]:-})  BLUE_ZONE_ROOT_FILES=(${ROOT_FILES_ARR[*]:-})${RESET}"
 
 # ── Step 5: denylist + egress allowlist — guarded copy (only on first

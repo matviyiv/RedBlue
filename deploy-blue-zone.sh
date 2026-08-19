@@ -217,7 +217,39 @@ FOLDERS_LINE="$(q_array BLUE_ZONE_FOLDERS ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"})
 ROOTFILES_LINE="$(q_array BLUE_ZONE_ROOT_FILES ${ROOT_FILES_ARR[@]+"${ROOT_FILES_ARR[@]}"})"
 EXCLUDES_LINE="$(q_array BLUE_ZONE_COMMON_EXCLUDES ${EXCLUDES_ARR[@]+"${EXCLUDES_ARR[@]}"})"
 
-awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" '
+# Selected folders the shipped template doesn't already have a case arm for
+# (currently src/ios/android) get a visible stub arm instead of silently
+# falling through the `*)` wildcard — otherwise a custom folder name looks
+# configured but gets zero folder-specific filtering, with nothing in the
+# file itself hinting at that.
+EXISTING_ARMS="$(awk '
+  /^blue_zone_excludes_for\(\)/ { infn = 1 }
+  infn && /^    [A-Za-z0-9_.-]+\)[[:space:]]*$/ {
+    label = $0
+    sub(/^ */, "", label)
+    sub(/\).*/, "", label)
+    if (label != "*") print label
+  }
+  infn && /^}/ { infn = 0 }
+' "$SETUP_SRC/blue-zone.config.sh")"
+
+# Space-joined (not newline-joined) so the `case ... in *" $f "*` substring
+# check below matches correctly.
+EXISTING_ARMS_SP=" $(printf '%s ' $EXISTING_ARMS) "
+
+STUB_ARMS=""
+for f in ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"}; do
+  case "$EXISTING_ARMS_SP" in *" $f "*) continue ;; esac
+  STUB_ARMS+="    ${f})
+      # No folder-specific red-zone rules configured yet for \"${f}\" — only
+      # the common excludes above apply. Add rsync --exclude patterns here
+      # (see src/ios/android above for examples) for anything in ${f}/ that
+      # must never reach Claude.
+      : ;;
+"
+done
+
+awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms="$STUB_ARMS" '
   /^BLUE_ZONE_FOLDERS=/ { print folders_line; next }
   /^BLUE_ZONE_ROOT_FILES=/ { print rootfiles_line; next }
   /^BLUE_ZONE_COMMON_EXCLUDES=\(/ {
@@ -226,6 +258,7 @@ awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v exclu
     next
   }
   in_excludes { if ($0 ~ /^\)/) in_excludes = 0; next }
+  /^    \*\)/ { if (stub_arms != "") printf "%s", stub_arms }
   { print }
 ' "$SETUP_SRC/blue-zone.config.sh" > "$TARGET_DIR/blue-zone.config.sh"
 echo -e "${GREEN}  BLUE_ZONE_FOLDERS=(${FOLDERS_ARR[*]:-})  BLUE_ZONE_ROOT_FILES=(${ROOT_FILES_ARR[*]:-})${RESET}"

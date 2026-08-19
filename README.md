@@ -89,16 +89,20 @@ exists on the host without being able to see the content.
 ## Repository Layout
 
 The reusable tooling lives in **`claude-docker/`** — the single source of truth.
-You copy it into your own project (or let `generate-test-project.sh` do it for
-the example project). Nothing is hand-maintained in two places.
+`deploy-blue-zone.sh` installs it into a real project (see
+[Using This in Your Own Project](#using-this-in-your-own-project)), and
+`generate-test-project.sh` copies it into the example project below. Nothing
+is hand-maintained in two places. Every path the tooling places at a
+project's root is prefixed (`ai-scripts/`, `ai-proxy/`, `*.ai-sandbox*`)
+rather than using generic names like `scripts/` or `Dockerfile`, so
+installing it never collides with files a real project already has — and it
+never touches that project's own `.claude/` directory.
 
 ```
 RedBlue/
 ├── claude-docker/                  # ← The tool (single source of truth)
-│   ├── .claude/CLAUDE.md           # Template rules: what Claude can/cannot do
-│   ├── blue-zone.config.sh         # Which folders are blue zone + exclusion rules
-│   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
-│   ├── scripts/
+│   ├── ai-scripts/
+│   │   ├── CLAUDE.md               # Template rules: what Claude can/cannot do
 │   │   ├── init.sh                 # One-time setup (prerequisites + Docker build)
 │   │   ├── prepare-blue-zone.sh    # rsync filter → /tmp/blue-zone/ (resets the zone)
 │   │   ├── validate-blue-zone.sh   # Secret leak scanner (run before Docker)
@@ -110,19 +114,25 @@ RedBlue/
 │   │       ├── blue-zone-project.sh   #   the red-zone filter itself
 │   │       ├── blue-zone-git.sh       #   shadow git repo behind two-way sync
 │   │       └── blue-zone-manifest.sh  #   manifest + compose overlay writers
-│   ├── proxy/                      # Egress allowlist proxy (interactive sessions)
+│   ├── blue-zone.config.sh         # Which folders are blue zone + exclusion rules
+│   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
+│   ├── ai-proxy/                   # Egress allowlist proxy (interactive sessions)
 │   │   ├── Dockerfile              #   tinyproxy on alpine
 │   │   ├── tinyproxy.conf          #   default-deny forward proxy
 │   │   └── filter                  #   allowlist: Anthropic + GitHub domains
-│   ├── Dockerfile                  # node:22-alpine + Claude Code CLI, non-root user
-│   ├── docker-compose.yml          # Network isolation, resource caps
+│   ├── Dockerfile.ai-sandbox       # node:22-alpine + Claude Code CLI, non-root user
+│   ├── docker-compose.ai-sandbox.yml  # Network isolation, resource caps
 │   └── .gitlab-ci.yml              # Full pipeline: build → validate → review
+│
+├── deploy-blue-zone.sh             # Install the tooling into a real project —
+│                                   #   copies it in and asks a few questions
+│                                   #   (folders, excludes, denylist, egress domains)
 │
 ├── generate-test-project.sh        # Scaffold a realistic test RN project AND
 │                                   #   copy the claude-docker tooling into it
 │
 └── MyBluezoneTest/                 # Example RN project (blue + red zone files)
-    ├── .claude/CLAUDE.md           # Project-specific Claude rules
+    ├── ai-scripts/CLAUDE.md        # Project-specific Claude rules
     ├── src/
     │   ├── types/                  # ← Blue zone API contracts (interfaces only)
     │   │   ├── auth.types.ts       #   IAuthApi, LoginRequest, LoginResponse
@@ -132,8 +142,9 @@ RedBlue/
     │   ├── api/                    # RED — stripped by prepare-blue-zone.sh
     │   ├── services/               # RED — stripped
     │   └── utils/httpClient.ts     # RED — stripped
-    └── scripts/, proxy/, …         # Tooling copied in from claude-docker/
-                                    #   (git-ignored — materialized, not source)
+    └── ai-scripts/, ai-proxy/, …   # Tooling copied in from claude-docker/
+                                    #   (materialized, not source — regenerated
+                                    #   by generate-test-project.sh on every run)
 ```
 
 ---
@@ -173,7 +184,7 @@ RedBlue/
      • three-way merges files you edited too, instead of overwriting them
      • blocks new files that collide with stripped red-zone paths
      • deletes files Claude removed (only ones that were in the blue zone)
-   disable with SYNC_BACK=0; preview with ./scripts/sync-back.sh --dry-run
+   disable with SYNC_BACK=0; preview with ./ai-scripts/sync-back.sh --dry-run
 ```
 
 ---
@@ -189,12 +200,12 @@ Both directions are now **merges**, so you and Claude can work at the same time:
 
 ```bash
 # Terminal 1 — the session
-./scripts/start-cli.sh
+./ai-scripts/start-cli.sh
 
 # Terminal 2 — you, still working in the repo
 vim src/screens/HomeScreen.tsx
-./scripts/sync-in.sh              # push your changes into the live blue zone
-./scripts/sync-in.sh --dry-run    # …or see what would come in first
+./ai-scripts/sync-in.sh              # push your changes into the live blue zone
+./ai-scripts/sync-in.sh --dry-run    # …or see what would come in first
 ```
 
 `sync-in.sh` rewrites only the files that actually changed on your side. Files
@@ -239,11 +250,11 @@ checkout and you review and commit them yourself. Git is only touched when you
 ask for it:
 
 ```bash
-./scripts/sync-back.sh --mr                        # branch, commit, push, open an MR
-./scripts/sync-back.sh --mr --mr-branch ai/review-1 # name the branch yourself
-./scripts/sync-back.sh --mr --mr-target develop     # target a specific branch
-./scripts/sync-back.sh --merge                      # …and merge when the pipeline passes
-./scripts/sync-back.sh --mr --dry-run               # show the branch/target/body, change nothing
+./ai-scripts/sync-back.sh --mr                        # branch, commit, push, open an MR
+./ai-scripts/sync-back.sh --mr --mr-branch ai/review-1 # name the branch yourself
+./ai-scripts/sync-back.sh --mr --mr-target develop     # target a specific branch
+./ai-scripts/sync-back.sh --merge                      # …and merge when the pipeline passes
+./ai-scripts/sync-back.sh --mr --dry-run               # show the branch/target/body, change nothing
 ```
 
 This commits **only the paths that were synced** — never `git add -A` — so
@@ -262,25 +273,65 @@ you get a clear message, and the changes are already in your working tree.
 
 ## Using This in Your Own Project
 
-### 1. Copy the docker setup into your RN project root
-
-The tooling lives in `claude-docker/` — the single source of truth. Copy it into
-your project root:
+### 1. Install the tooling with `deploy-blue-zone.sh`
 
 ```bash
-cp -R claude-docker/.claude                        your-project/   # customise CLAUDE.md after
-cp -R claude-docker/scripts                         your-project/
-cp -R claude-docker/proxy                           your-project/   # egress allowlist proxy
-cp    claude-docker/blue-zone.config.sh             your-project/   # which folders are blue zone
-cp    claude-docker/blue-zone-insecure-strings.txt  your-project/   # content denylist
-cp    claude-docker/Dockerfile                       your-project/
-cp    claude-docker/docker-compose.yml               your-project/
+./deploy-blue-zone.sh /path/to/your-project
 ```
 
-`scripts/` reads `blue-zone.config.sh` from the project root, and that reads
-`blue-zone-insecure-strings.txt` next to it — so keep all three together. When a
-new version of the tooling lands in `claude-docker/`, re-run the same copy to
-update; there is no per-project fork to reconcile.
+Copies the tooling in, then asks a short series of questions — blue-zone
+folders, root files to stage, extra exclude patterns, insecure/denylist
+strings, and egress-allowed domains — each with a sensible default shown in
+brackets, so pressing Enter through all of them still produces a working
+setup. It finishes by generating a project-specific `ai-scripts/CLAUDE.md`
+from your answers.
+
+```
+Blue zone folders (space/comma separated — top-level dirs Claude may see) [src]:
+Root files to stage alongside them (may be empty) [package.json tsconfig.json]:
+Additional exclude patterns to append, beyond '.env* node_modules/' (may be empty):
+Additional insecure/denylist strings to append (may be empty):
+Additional egress-allowed domains to append, e.g. api.example.com (may be empty):
+One-line project description for ai-scripts/CLAUDE.md [a software project]:
+```
+
+- `-y` / `--yes` accepts every default without prompting — for a scripted or
+  CI reinstall.
+- Every path it writes at your project's root is uniquely named
+  (`ai-scripts/`, `ai-proxy/`, `Dockerfile.ai-sandbox`,
+  `docker-compose.ai-sandbox.yml`) so it never collides with a `scripts/` or
+  `Dockerfile` your project already has — and it never touches your
+  project's own `.claude/` directory.
+- **Safe to re-run.** On a project that already has the tooling installed,
+  it reads the existing `blue-zone.config.sh` and uses those values as the
+  new defaults, so re-running to add one folder or domain doesn't reset
+  earlier answers. Denylist and egress-allowlist entries are only ever
+  appended (deduplicated) — a repeated answer never produces a duplicate
+  line — and an existing `.env.example` or hand-edited `ai-scripts/CLAUDE.md`
+  is never overwritten without asking first.
+
+`ai-scripts/` reads `blue-zone.config.sh` from the project root, and that
+reads `blue-zone-insecure-strings.txt` next to it — so keep all three
+together. Re-run `deploy-blue-zone.sh` whenever a new version of the tooling
+lands in `claude-docker/`; there is no per-project fork to reconcile.
+
+<details>
+<summary>Advanced: manual copy (skip the wizard)</summary>
+
+```bash
+cp -R claude-docker/ai-scripts                      your-project/
+cp -R claude-docker/ai-proxy                         your-project/   # egress allowlist proxy
+cp    claude-docker/blue-zone.config.sh             your-project/   # which folders are blue zone
+cp    claude-docker/blue-zone-insecure-strings.txt  your-project/   # content denylist
+cp    claude-docker/Dockerfile.ai-sandbox            your-project/
+cp    claude-docker/docker-compose.ai-sandbox.yml    your-project/
+```
+
+Edit `blue-zone.config.sh`, `blue-zone-insecure-strings.txt`, `ai-proxy/filter`
+and `ai-scripts/CLAUDE.md` by hand afterward — this is exactly what
+`deploy-blue-zone.sh` automates.
+
+</details>
 
 ### 2. Add your API contracts to `src/types/`
 
@@ -312,28 +363,28 @@ seeing their values.
 
 ```bash
 # One-time setup (checks prerequisites, builds Docker image)
-./scripts/init.sh
+./ai-scripts/init.sh
 
 # Interactive session — opens Claude Code CLI inside the container.
 # Authenticate with ONE of:
 export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # a) `claude setup-token` (Pro/Max)
-./scripts/start-cli.sh                        # b) no token at all — log in via
+./ai-scripts/start-cli.sh                        # b) no token at all — log in via
                                               #    /login once; credentials persist
                                               #    in the claude-home volume
 
 # Claude state (login, onboarding, session history) persists between runs
 # in the claude-home Docker volume. Wipe it to start fresh:
-./scripts/start-cli.sh --clear
+./ai-scripts/start-cli.sh --clear
 
 # Headless prompt (CI-friendly)
-./scripts/run-headless.sh "Review src/ for TypeScript errors and suggest fixes"
-./scripts/run-headless.sh "Check ios/ native modules for memory leaks" --output-format json
+./ai-scripts/run-headless.sh "Review src/ for TypeScript errors and suggest fixes"
+./ai-scripts/run-headless.sh "Check ios/ native modules for memory leaks" --output-format json
 ```
 
 ### 5. Validate without running Claude
 
 ```bash
-./scripts/validate-blue-zone.sh --strict
+./ai-scripts/validate-blue-zone.sh --strict
 ```
 
 All checks must pass before Docker starts:
@@ -422,9 +473,9 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Red zone files never reach Claude | `rsync` exclusions before Docker starts |
 | Blue zone is verified clean | `validate-blue-zone.sh` exits 1 on any violation |
 | Container can't phone home | Headless: `network_mode: none`. Interactive: attached only to an `internal` Docker network whose sole exit is an egress proxy that allowlists only Anthropic + GitHub domains — no LAN or arbitrary-internet access |
-| Interactive session can't reach your LAN | `claude-cli` has no route off the `internal` network; the dual-homed `egress-proxy` denies every destination except the allowlisted public hosts in `proxy/filter` (Anthropic, GitHub) |
+| Interactive session can't reach your LAN | `claude-cli` has no route off the `internal` network; the dual-homed `egress-proxy` denies every destination except the allowlisted public hosts in `ai-proxy/filter` (Anthropic, GitHub) |
 | Repo is never written directly | Writable mounts point at the per-project `/tmp/blue-zone/<project>` staging copy; config mounts stay `:ro` |
-| No root inside container | Non-root `claude` user in Dockerfile |
+| No root inside container | Non-root `claude` user in Dockerfile.ai-sandbox |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 
 ---
@@ -438,8 +489,8 @@ can verify the pipeline end-to-end without using your real codebase:
 ```bash
 bash generate-test-project.sh    # scaffolds MyBluezoneTest/ + copies tooling in
 cd MyBluezoneTest
-./scripts/prepare-blue-zone.sh   # should show red zone exclusions
-./scripts/validate-blue-zone.sh  # should pass all checks
+./ai-scripts/prepare-blue-zone.sh   # should show red zone exclusions
+./ai-scripts/validate-blue-zone.sh  # should pass all checks
 ```
 
 Because the tooling is copied from `claude-docker/` on every run, the generated

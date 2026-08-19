@@ -10,8 +10,8 @@ into your repo **automatically when the session ends** (interactive and
 headless). Set `SYNC_BACK=0` to disable, or run it by hand:
 
 ```bash
-./scripts/sync-back.sh --dry-run   # preview what would be copied back
-./scripts/sync-back.sh             # apply
+./ai-scripts/sync-back.sh --dry-run   # preview what would be copied back
+./ai-scripts/sync-back.sh             # apply
 ```
 
 Sync-back safety rules (enforced via a snapshot taken at prepare time):
@@ -34,10 +34,9 @@ Sync-back safety rules (enforced via a snapshot taken at prepare time):
 ## File Structure
 
 ```
-your-rn-project/
-├── .claude/
-│   └── CLAUDE.md                  <- Claude's scope and constraints
-├── scripts/
+your-project/
+├── ai-scripts/
+│   ├── CLAUDE.md                  <- Claude's scope and constraints
 │   ├── init.sh                    <- One-time setup
 │   ├── auth.sh                    <- Auth resolution (token / login)
 │   ├── prepare-blue-zone.sh       <- rsync filter into /tmp/blue-zone/
@@ -45,8 +44,8 @@ your-rn-project/
 │   ├── start-cli.sh               <- Interactive session (local dev)
 │   ├── run-headless.sh            <- Headless prompt runner
 │   └── sync-back.sh               <- Auto-syncs Claude's changes to the repo
-├── Dockerfile
-├── docker-compose.yml
+├── Dockerfile.ai-sandbox
+├── docker-compose.ai-sandbox.yml
 └── .gitlab-ci.yml
 ```
 
@@ -57,7 +56,7 @@ A token is **optional**. Auth is resolved in this order:
 | Priority | Method | How |
 |----------|--------|-----|
 | 1 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
-| 2 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
+| 2 | Persisted login | Run `./ai-scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
 
 Headless runs (`run-headless.sh`, CI) need one of the two already in place;
 interactive sessions can always start and log in on the spot.
@@ -75,28 +74,28 @@ Past conversations can be resumed inside a new session with `claude
 To wipe it and start fresh:
 
 ```bash
-./scripts/start-cli.sh --clear    # removes the claude-home volume
+./ai-scripts/start-cli.sh --clear    # removes the claude-home volume
 ```
 
 ## Quick Start
 
 ```bash
 # One-time setup
-./scripts/init.sh
+./ai-scripts/init.sh
 
 # Interactive session (local dev) — with a subscription token...
 export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
-./scripts/start-cli.sh
+./ai-scripts/start-cli.sh
 
 # ...or without one: just start it and log in with /login (persists)
-./scripts/start-cli.sh
+./ai-scripts/start-cli.sh
 
 # Headless run
-./scripts/run-headless.sh "Review ios/ native modules for memory leaks"
-./scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
+./ai-scripts/run-headless.sh "Review ios/ native modules for memory leaks"
+./ai-scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
 
 # Validate only (no Docker)
-./scripts/validate-blue-zone.sh --strict
+./ai-scripts/validate-blue-zone.sh --strict
 ```
 
 ## Flow

@@ -17,8 +17,8 @@ into your repo **automatically when the session ends** (interactive and
 headless). Set `SYNC_BACK=0` to disable, or run it by hand:
 
 ```bash
-./scripts/sync-back.sh --dry-run   # preview what would be copied back
-./scripts/sync-back.sh             # apply
+./ai-scripts/sync-back.sh --dry-run   # preview what would be copied back
+./ai-scripts/sync-back.sh             # apply
 ```
 
 Sync-back safety rules (enforced via a snapshot taken at prepare time):
@@ -75,12 +75,12 @@ Edit `BLUE_ZONE_FOLDERS`, then run any of the scripts — `prepare-blue-zone.sh`
 stages exactly those folders, generates the matching docker-compose mounts
 (`docker-compose.blue-zone.yml`, layered on via `COMPOSE_FILE`), and
 `validate-blue-zone.sh` verifies every configured exclusion actually held. You
-do **not** touch `docker-compose.yml` or any script to add or remove a folder.
+do **not** touch `docker-compose.ai-sandbox.yml` or any script to add or remove a folder.
 
 ### Adding individual files (`BLUE_ZONE_ROOT_FILES`)
 
 To expose a single file (e.g. `package.json`, `tsconfig.json`), list it in
-**`BLUE_ZONE_ROOT_FILES`** rather than bind-mounting it in `docker-compose.yml`.
+**`BLUE_ZONE_ROOT_FILES`** rather than bind-mounting it in `docker-compose.ai-sandbox.yml`.
 Unlike a raw mount, a file listed here goes through the **same pipeline as the
 folders**: it is staged into the blue zone, dropped if the content denylist finds
 a forbidden string, scanned for secrets by `validate-blue-zone.sh`, recorded in
@@ -96,9 +96,9 @@ BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json babel.config.js)
 - A listed file that contains a denylisted string is dropped and shows up in the
   manifest as *not available*, exactly like a stripped folder file.
 
-The only files still bind-mounted directly in `docker-compose.yml` are
+The only files still bind-mounted directly in `docker-compose.ai-sandbox.yml` are
 `.env.example` (schema reference, value-less, validated separately) and
-`.claude/CLAUDE.md` (Claude's guidance) — everything reviewable goes through
+`ai-scripts/CLAUDE.md` (Claude's guidance) — everything reviewable goes through
 `BLUE_ZONE_ROOT_FILES`.
 
 ## Content denylist (insecure strings)
@@ -159,22 +159,23 @@ With the default `BLUE_ZONE_FOLDERS=(src ios android)`:
 ## File Structure
 
 ```
-your-rn-project/
-├── .claude/
-│   └── CLAUDE.md                  <- Claude's scope and constraints
-├── scripts/
+your-project/
+├── ai-scripts/
+│   ├── CLAUDE.md                  <- Claude's scope and constraints
 │   ├── init.sh                    <- One-time setup
 │   ├── auth.sh                    <- Auth resolution (token / login)
 │   ├── prepare-blue-zone.sh       <- rsync filter into /tmp/blue-zone/
 │   ├── validate-blue-zone.sh      <- Secret leak scanner
 │   ├── start-cli.sh               <- Interactive session (local dev)
 │   ├── run-headless.sh            <- Headless prompt runner
+│   ├── sync-in.sh                 <- Merge your repo changes into a live session
 │   ├── sync-back.sh               <- Auto-syncs Claude's changes to the repo
 │   └── diagnose-egress.sh         <- Probe the egress proxy allowlist
 ├── blue-zone.config.sh            <- Folder list + exclusion rules (edit this)
 ├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
-├── Dockerfile
-├── docker-compose.yml             <- Base compose (no folder mounts hardcoded)
+├── ai-proxy/                      <- Egress allowlist proxy
+├── Dockerfile.ai-sandbox
+├── docker-compose.ai-sandbox.yml  <- Base compose (no folder mounts hardcoded)
 ├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
 └── .gitlab-ci.yml
 ```
@@ -186,7 +187,7 @@ A token is **optional**. Auth is resolved in this order:
 | Priority | Method | How |
 |----------|--------|-----|
 | 1 | Subscription token | `claude setup-token` on the host (Claude Pro/Max), then `export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...` |
-| 2 | Persisted login | Run `./scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
+| 2 | Persisted login | Run `./ai-scripts/start-cli.sh` once and log in via `/login` — credentials are stored in the `claude-home` Docker volume and reused by later runs (including headless) |
 
 Headless runs (`run-headless.sh`, CI) need one of the two already in place;
 interactive sessions can always start and log in on the spot.
@@ -204,7 +205,7 @@ Past conversations can be resumed inside a new session with `claude
 To wipe it and start fresh:
 
 ```bash
-./scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
+./ai-scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
 ```
 
 ## Dependencies (node_modules cache)
@@ -216,7 +217,7 @@ first `npm install` populates it; later runs are incremental. npm's download
 cache (`~/.npm`) persists too, inside the `claude-home` volume.
 
 The **interactive** container can reach the npm and yarn registries (added to the
-egress allowlist in `proxy/filter`), so `npm install` / `yarn install` work there.
+egress allowlist in `ai-proxy/filter`), so `npm install` / `yarn install` work there.
 The **headless** container has no network by design — it reuses whatever the
 persistent `node-modules` volume already holds, so run an install interactively
 once and headless/CI runs pick it up.
@@ -238,28 +239,28 @@ Committing a lockfile (add `package-lock.json` / `yarn.lock` to
 
 ```bash
 docker compose down -v            # clears node_modules (and claude-home) volumes
-CLAUDE_MEMORY=8g ./scripts/start-cli.sh   # more memory for a big install
+CLAUDE_MEMORY=8g ./ai-scripts/start-cli.sh   # more memory for a big install
 ```
 
 ## Quick Start
 
 ```bash
 # One-time setup
-./scripts/init.sh
+./ai-scripts/init.sh
 
 # Interactive session (local dev) — with a subscription token...
 export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
-./scripts/start-cli.sh
+./ai-scripts/start-cli.sh
 
 # ...or without one: just start it and log in with /login (persists)
-./scripts/start-cli.sh
+./ai-scripts/start-cli.sh
 
 # Headless run
-./scripts/run-headless.sh "Review ios/ native modules for memory leaks"
-./scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
+./ai-scripts/run-headless.sh "Review ios/ native modules for memory leaks"
+./ai-scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
 
 # Validate only (no Docker)
-./scripts/validate-blue-zone.sh --strict
+./ai-scripts/validate-blue-zone.sh --strict
 ```
 
 ## Flow

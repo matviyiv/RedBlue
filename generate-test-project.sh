@@ -430,17 +430,20 @@ echo "FAKEKEYSTORE" > android/app/release.jks
 # 5. Copy blue zone docker setup into project (materialized from claude-docker/).
 # These files are NOT hand-maintained per project — they are the single source
 # of truth in claude-docker/, copied in here so the project is self-contained.
-# scripts/ sources ../blue-zone.config.sh, which in turn reads
+# ai-scripts/ sources ../blue-zone.config.sh, which in turn reads
 # blue-zone-insecure-strings.txt from the same directory, so all three must
-# land together at the project root. proxy/ + Dockerfile + docker-compose.yml
-# complete the runnable docker setup.
+# land together at the project root. ai-proxy/ + Dockerfile.ai-sandbox +
+# docker-compose.ai-sandbox.yml complete the runnable docker setup. Every
+# copied path is prefixed (ai-scripts/, ai-proxy/, *.ai-sandbox) rather than
+# using generic names like scripts/ or Dockerfile, so installing this tooling
+# never collides with files a real project already has.
 TOOLING=(
-  scripts
+  ai-scripts
   blue-zone.config.sh
   blue-zone-insecure-strings.txt
-  proxy
-  Dockerfile
-  docker-compose.yml
+  ai-proxy
+  Dockerfile.ai-sandbox
+  docker-compose.ai-sandbox.yml
 )
 if [ -d "$SETUP_SRC" ]; then
   for item in "${TOOLING[@]}"; do

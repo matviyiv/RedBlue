@@ -186,6 +186,12 @@ ANS_EXTRA_EXCLUDES="${ANS_EXTRA_EXCLUDES//,/ }"
 ANS_EXTRA_DENYLIST="${ANS_EXTRA_DENYLIST//,/ }"
 ANS_EXTRA_DOMAINS="${ANS_EXTRA_DOMAINS//,/ }"
 
+# Pre-declared so a zero-field `read -ra` still leaves a defined (if empty)
+# array under `set -u` — on bash 3.2 (macOS /bin/bash) `read -ra arr <<< ""`
+# leaves `arr` completely unset rather than empty, unlike bash 4+.
+FOLDERS_ARR=()
+ROOT_FILES_ARR=()
+EXCLUDES_ARR=()
 read -ra FOLDERS_ARR <<< "$ANS_FOLDERS"
 read -ra ROOT_FILES_ARR <<< "$ANS_ROOT_FILES"
 read -ra EXCLUDES_ARR <<< "$DEFAULT_EXCLUDES $ANS_EXTRA_EXCLUDES"
@@ -207,9 +213,9 @@ q_array() {
   printf '%s' "$out"
 }
 
-FOLDERS_LINE="$(q_array BLUE_ZONE_FOLDERS "${FOLDERS_ARR[@]}")"
-ROOTFILES_LINE="$(q_array BLUE_ZONE_ROOT_FILES "${ROOT_FILES_ARR[@]}")"
-EXCLUDES_LINE="$(q_array BLUE_ZONE_COMMON_EXCLUDES "${EXCLUDES_ARR[@]}")"
+FOLDERS_LINE="$(q_array BLUE_ZONE_FOLDERS ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"})"
+ROOTFILES_LINE="$(q_array BLUE_ZONE_ROOT_FILES ${ROOT_FILES_ARR[@]+"${ROOT_FILES_ARR[@]}"})"
+EXCLUDES_LINE="$(q_array BLUE_ZONE_COMMON_EXCLUDES ${EXCLUDES_ARR[@]+"${EXCLUDES_ARR[@]}"})"
 
 awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" '
   /^BLUE_ZONE_FOLDERS=/ { print folders_line; next }
@@ -299,7 +305,7 @@ fi
 
 if $REGEN_CLAUDE_MD; then
   FOLDER_BULLETS=""
-  for f in "${FOLDERS_ARR[@]}"; do
+  for f in ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"}; do
     FOLDER_BULLETS+="- \`/workspace/$f\`"$'\n'
   done
   [ -n "$FOLDER_BULLETS" ] || FOLDER_BULLETS="- (no folders configured yet — edit BLUE_ZONE_FOLDERS in blue-zone.config.sh)"$'\n'

@@ -21,6 +21,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
 
+# Base file only, set early so every docker compose call below (including
+# --clear and the auth check) can find it — Docker Compose does not
+# auto-discover a non-default-named file. Widened to include the generated
+# per-folder overlay further down, once prepare-blue-zone.sh has written it.
+export COMPOSE_FILE="docker-compose.ai-sandbox.yml"
+
 if [ "${1:-}" = "--clear" ]; then
   echo -e "${BOLD}Clearing persisted Claude state (login, onboarding, sessions)...${RESET}"
   docker compose down --volumes --remove-orphans

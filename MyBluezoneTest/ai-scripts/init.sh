@@ -91,7 +91,10 @@ done
 
 # ── 6. Build Docker image ─────────────────────────────────────────────────────
 echo -e "\n${BOLD}[6/6] Building Claude Code Docker image...${RESET}"
-docker compose build claude-code
+# Base file only — no volumes involved in a build, and the generated overlay
+# (docker-compose.blue-zone.yml) doesn't exist yet this early, before
+# prepare-blue-zone.sh has ever run.
+docker compose -f docker-compose.ai-sandbox.yml build claude-code
 
 echo -e "\n${GREEN}${BOLD}Init complete!${RESET}"
 echo ""

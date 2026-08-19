@@ -28,6 +28,11 @@ YELLOW="\033[0;33m"; CYAN="\033[0;36m"; RESET="\033[0m"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# Base file only — this script never touches the per-folder overlay (--no-deps,
+# only egress-proxy/claude-cli), and the overlay may not even exist yet if
+# prepare-blue-zone.sh hasn't run.
+export COMPOSE_FILE="docker-compose.ai-sandbox.yml"
+
 # Hosts to probe: the ones Claude Code needs, plus a couple that MUST be blocked
 # (example.com) as a negative control. Extra args are appended.
 # Note: only real, resolvable hosts belong here. A non-existent name (e.g.

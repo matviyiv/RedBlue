@@ -162,7 +162,14 @@ bz_write_exclude() {
 bz_shadow_init() {
   mkdir -p "$BLUE_ZONE_STATE_DIR" "$BLUE_ZONE_BASE_DIR"
 
-  if [ ! -d "$BLUE_ZONE_SHADOW_GIT" ]; then
+  # Checked via the HEAD file, not just directory existence — a prior run that
+  # died mid-init (crash, disk full, an earlier unrelated failure) can leave
+  # $BLUE_ZONE_SHADOW_GIT as an existing but not-yet-a-git-repo directory,
+  # which would otherwise make every command below fail with
+  # "fatal: not in a git directory". Safe to wipe and reinit: this is pure
+  # local sync bookkeeping with no remote (see file header).
+  if [ ! -e "$BLUE_ZONE_SHADOW_GIT/HEAD" ]; then
+    rm -rf "$BLUE_ZONE_SHADOW_GIT"
     # A bare init gives us a git directory with no work tree of its own, which
     # is what we want — every command supplies --work-tree explicitly. Flipping
     # core.bare back off is what makes those work-tree commands legal.

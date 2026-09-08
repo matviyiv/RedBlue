@@ -166,8 +166,14 @@ cp    "$SETUP_SRC/Dockerfile.ai-sandbox" "$TARGET_DIR/"
 cp    "$SETUP_SRC/docker-compose.ai-sandbox.yml" "$TARGET_DIR/"
 cp    "$SETUP_SRC/ai-proxy/Dockerfile" "$TARGET_DIR/ai-proxy/"
 cp    "$SETUP_SRC/ai-proxy/tinyproxy.conf" "$TARGET_DIR/ai-proxy/"
+# The tooling docs (how to run prepare/sync-in/sync-back/validate, the manifest,
+# configuring blue-zone folders, …) live in claude-docker/README.md. It isn't
+# project-specific like CLAUDE.md, so it's copied verbatim alongside the scripts
+# it documents, inside ai-scripts/ where a developer looking at that folder will
+# find it.
+cp    "$SETUP_SRC/README.md" "$TARGET_DIR/ai-scripts/README.md"
 chmod +x "$TARGET_DIR"/ai-scripts/*.sh
-echo -e "${GREEN}  ai-scripts/, ai-proxy/{Dockerfile,tinyproxy.conf}, Dockerfile.ai-sandbox, docker-compose.ai-sandbox.yml${RESET}"
+echo -e "${GREEN}  ai-scripts/{,README.md}, ai-proxy/{Dockerfile,tinyproxy.conf}, Dockerfile.ai-sandbox, docker-compose.ai-sandbox.yml${RESET}"
 
 # ── Step 3: the questions ────────────────────────────────────────────────────
 echo -e "\n${BOLD}[2/5] A few questions (Enter accepts the default)...${RESET}\n"

@@ -120,7 +120,7 @@ RedBlue/
 │   │   ├── Dockerfile              #   tinyproxy on alpine
 │   │   ├── tinyproxy.conf          #   default-deny forward proxy
 │   │   └── filter                  #   allowlist: Anthropic + GitHub domains
-│   ├── Dockerfile.ai-sandbox       # node:22-alpine + Claude Code CLI, non-root user
+│   ├── Dockerfile.ai-sandbox       # node:26-alpine + Claude Code CLI, non-root user
 │   ├── docker-compose.ai-sandbox.yml  # Network isolation, resource caps
 │   └── .gitlab-ci.yml              # Full pipeline: build → validate → review
 │

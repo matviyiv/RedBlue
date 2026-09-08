@@ -78,9 +78,10 @@ blue_zone_write_manifest() {
     fi
     # Source files (minus heavy/irrelevant trees) vs what actually got staged.
     # The difference is everything the filename excludes AND the content
-    # denylist kept out.
-    SRC_LIST="$( (cd "./$folder" && find . -type f \
-        -not -path './node_modules/*' -not -path './.git/*' 2>/dev/null) \
+    # denylist kept out. node_modules and .git are pruned outright — not just
+    # filtered from the output — so they are never walked at any depth, no
+    # matter how large, and never appear in the manifest shown to Claude.
+    SRC_LIST="$( (cd "./$folder" && find . \( -name node_modules -o -name .git \) -prune -o -type f -print 2>/dev/null) \
         | sed 's|^\./||' | sort )"
     STAGED_LIST="$( (cd "$BLUE_ZONE_ROOT/$folder" && find . -type f 2>/dev/null) \
         | sed 's|^\./||' | sort )"

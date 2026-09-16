@@ -16,6 +16,8 @@ RESET="\033[0m"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
+# shellcheck source=lib/blue-zone-browser.sh
+source "$SCRIPT_DIR/lib/blue-zone-browser.sh"
 
 echo -e "${BOLD}Claude Code Blue Zone - Init${RESET}\n"
 
@@ -95,6 +97,22 @@ echo -e "\n${BOLD}[6/6] Building Claude Code Docker image...${RESET}"
 # (docker-compose.blue-zone.yml) doesn't exist yet this early, before
 # prepare-blue-zone.sh has ever run.
 docker compose -f docker-compose.ai-sandbox.yml build claude-code
+
+# ── 7. Browser image, only if the optional Playwright browser is enabled ─────
+# Built here so the first session doesn't stall on a multi-GB browser pull, and
+# so a bad egress policy is caught now rather than at session start.
+if blue_zone_browser_enabled; then
+  echo -e "\n${BOLD}[+] Browser enabled — checking egress policy and building...${RESET}"
+  if ! blue_zone_browser_check; then
+    echo -e "${RED}Browser egress policy rejected — fix blue-zone.config.sh and re-run.${RESET}"
+    echo -e "${YELLOW}Skipping the browser image build; the rest of the setup is done.${RESET}"
+  else
+    blue_zone_browser_write "$(pwd)"
+    docker compose -f docker-compose.ai-sandbox.yml -f "$BLUE_ZONE_BROWSER_COMPOSE_FILE" \
+      build playwright-mcp browser-proxy
+    echo -e "${GREEN}Browser image built (image: $BLUE_ZONE_BROWSER_IMAGE)${RESET}"
+  fi
+fi
 
 echo -e "\n${GREEN}${BOLD}Init complete!${RESET}"
 echo ""

@@ -164,6 +164,66 @@ BLUE_ZONE_DENYLIST_FILE="${BLUE_ZONE_DENYLIST_FILE:-$BLUE_ZONE_CONFIG_DIR/blue-z
 # unset variable falls back to the default marker.
 BLUE_ZONE_ALLOW_MARKER="${BLUE_ZONE_ALLOW_MARKER-fine-for-claude}"
 
+# ── Browser automation (Playwright MCP) — OFF by default ─────────────────────
+# An optional, opt-in browser for the INTERACTIVE session only. The Playwright
+# MCP server does NOT run inside the Claude sandbox image: it runs in its own
+# `playwright-mcp` container that never sees the blue zone, and its Chromium is
+# forced through a second, separate allowlist proxy (`browser-proxy`). Claude
+# reaches it over an internal Docker network and can only drive the browser
+# through MCP tool calls — it gets no network of its own from this.
+#
+# The headless / CI service (run-headless.sh) never gets the browser: it keeps
+# `network_mode: none`.
+#
+# Turn it on here (or export BLUE_ZONE_BROWSER_ENABLED=1 for one session).
+BLUE_ZONE_BROWSER_ENABLED="${BLUE_ZONE_BROWSER_ENABLED:-0}"
+
+# ── The browser egress allowlist — THE security control ──────────────────────
+# Default-deny: the browser can reach an origin ONLY if it is listed here.
+# Everything else — every other site, every LAN address, your host — is refused
+# by the proxy before a connection is made. Each entry is a full origin:
+#
+#     scheme://host[:port]     scheme is http or https; no path, no credentials
+#
+# Examples:
+#     BLUE_ZONE_BROWSER_ORIGINS=(
+#       http://host.docker.internal:8081     # a dev server on YOUR machine
+#       https://staging.example.com          # a staging deployment
+#       https://playwright.dev               # docs the session may need
+#     )
+#
+# Keep this as short as the task needs. Every origin you add is somewhere the
+# session could send workspace content, one navigation at a time.
+BLUE_ZONE_BROWSER_ORIGINS=()
+
+# Reaching a server on YOUR machine (host.docker.internal) is a real hole in the
+# container boundary: the proxy gets a route to the host, and from the host to
+# whatever the host can reach. Required — and refused unless set to 1 — before
+# any host.docker.internal origin above is accepted.
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY="${BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY:-0}"
+
+# Literal private/LAN addresses (10.x, 192.168.x, 172.16-31.x, *.local, …) are
+# refused outright: allowing one points the browser at your internal network.
+# Set to 1 only if you have decided, deliberately, that a specific internal host
+# is in scope — and keep the origin list to exactly that host.
+BLUE_ZONE_BROWSER_ALLOW_PRIVATE_IPS="${BLUE_ZONE_BROWSER_ALLOW_PRIVATE_IPS:-0}"
+
+# Playwright MCP tools pre-approved without an interactive permission prompt.
+# Empty (the default) means Claude asks you before every browser action — the
+# safe setting, and the reason this is interactive-only. Narrow, read-only
+# example: "mcp__playwright__browser_navigate,mcp__playwright__browser_snapshot"
+BLUE_ZONE_BROWSER_TOOLS="${BLUE_ZONE_BROWSER_TOOLS:-}"
+
+# Images/versions for the browser container. Pin these — an unpinned browser
+# stack is a supply-chain hole in exactly the place you least want one. Bump
+# deliberately, and prefer a digest (image@sha256:...) over a tag for the base.
+BLUE_ZONE_BROWSER_IMAGE="${BLUE_ZONE_BROWSER_IMAGE:-mcr.microsoft.com/playwright:v1.55.0-noble}"
+BLUE_ZONE_BROWSER_MCP_VERSION="${BLUE_ZONE_BROWSER_MCP_VERSION:-latest}"
+
+# Memory cap for the browser container (Chromium is hungry; it is not the
+# Claude container, so this is separate from CLAUDE_MEMORY).
+BLUE_ZONE_BROWSER_MEMORY="${BLUE_ZONE_BROWSER_MEMORY:-2g}"
+
 # ── Derived helpers (do not usually need editing) ────────────────────────────
 
 # Project name used to namespace the staging root, so several projects can each
@@ -196,6 +256,18 @@ BLUE_ZONE_COMPOSE_FILE="${BLUE_ZONE_COMPOSE_FILE:-docker-compose.blue-zone.yml}"
 # inside a mounted folder — so sync-back never carries it back into the repo, and
 # it is mounted read-only so Claude cannot alter it.
 BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
+
+# Generated compose overlay holding the browser services (playwright-mcp +
+# browser-proxy) and the MCP config mount. Written by lib/blue-zone-browser.sh
+# only when BLUE_ZONE_BROWSER_ENABLED=1, layered on top of the base compose file
+# by start-cli.sh. Regenerated every run — never committed, never hand-edited.
+BLUE_ZONE_BROWSER_COMPOSE_FILE="${BLUE_ZONE_BROWSER_COMPOSE_FILE:-docker-compose.browser.yml}"
+
+# Host-side directory for the generated browser runtime config (the browser
+# proxy's tinyproxy.conf + filter, and the .mcp.json mounted into the session).
+# It sits at the blue zone ROOT, not inside a mounted folder, so it is never
+# part of the workspace, never scanned as project content, and never synced back.
+BLUE_ZONE_BROWSER_DIR="${BLUE_ZONE_BROWSER_DIR:-$BLUE_ZONE_ROOT/.browser}"
 
 # ── Two-way sync (shadow git repo) ───────────────────────────────────────────
 # The blue zone is tracked by a private "shadow" git repo so the repo and the

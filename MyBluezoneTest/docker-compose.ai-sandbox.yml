@@ -27,6 +27,10 @@
 #     claude-code (headless / CI)  -> network_mode: none        (no network)
 #     claude-cli  (interactive)    -> internal `egress` network, reaches ONLY
 #                                     the egress-proxy allowlist. No LAN access.
+#     playwright-mcp (optional)    -> its own container, own allowlist proxy,
+#                                     no blue-zone mounts. Interactive only, and
+#                                     only when BLUE_ZONE_BROWSER_ENABLED=1.
+#                                     See ai-scripts/lib/blue-zone-browser.sh.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Shared configuration for both Claude services (build, image, mounts, limits).
@@ -124,6 +128,12 @@ services:
     command: []
     networks:
       - egress
+      # Internal, and empty unless the optional Playwright browser is enabled
+      # (BLUE_ZONE_BROWSER_ENABLED=1 in blue-zone.config.sh). When it is, the
+      # playwright-mcp container joins this network and the session can speak
+      # MCP to it. It is `internal: true`, so being attached grants no network
+      # reach on its own — with the browser off there is simply nothing here.
+      - browser
     depends_on:
       - egress-proxy
 
@@ -154,6 +164,13 @@ networks:
   # No gateway to the host/LAN/internet. claude-cli lives here and can only
   # reach other containers on this network (i.e. the proxy).
   egress:
+    internal: true
+  # claude-cli <-> playwright-mcp, for the optional browser. Also internal: the
+  # browser container is the only thing ever attached besides the session, and
+  # the browser's own way out is a separate proxy on a separate network (see
+  # the generated docker-compose.browser.yml). Declared here so the base file
+  # stays valid whether or not the browser is enabled.
+  browser:
     internal: true
   # Normal bridge — only the proxy is attached, giving it (and only it)
   # outbound internet access to the allowlisted Anthropic domains.

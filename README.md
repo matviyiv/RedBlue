@@ -113,9 +113,12 @@ RedBlue/
 │   │   └── lib/                    # Shared internals (sourced, not run)
 │   │       ├── blue-zone-project.sh   #   the red-zone filter itself
 │   │       ├── blue-zone-git.sh       #   shadow git repo behind two-way sync
-│   │       └── blue-zone-manifest.sh  #   manifest + compose overlay writers
+│   │       ├── blue-zone-manifest.sh  #   manifest + compose overlay writers
+│   │       └── blue-zone-browser.sh   #   optional browser + its egress allowlist
 │   ├── blue-zone.config.sh         # Which folders are blue zone + exclusion rules
 │   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
+│   ├── ai-playwright/              # Optional browser, OUTSIDE the sandbox image
+│   │   └── Dockerfile              #   Playwright MCP + Chromium, non-root
 │   ├── ai-proxy/                   # Egress allowlist proxy (interactive sessions)
 │   │   ├── Dockerfile              #   tinyproxy on alpine
 │   │   ├── tinyproxy.conf          #   default-deny forward proxy
@@ -449,6 +452,49 @@ before running any script.
 
 ---
 
+---
+
+## Optional: a browser, outside the sandbox image
+
+Some work needs a real browser — loading the app, checking a rendered screen,
+reproducing a UI bug. A browser is also the one tool that can carry workspace
+content back out over HTTP, so it is off by default and, when on, lives in its
+own container with its own, much narrower allowlist.
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_BROWSER_ENABLED=1
+BLUE_ZONE_BROWSER_ORIGINS=(
+  http://host.docker.internal:8081     # your dev server
+  https://staging.example.com          # a staging deployment
+)
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=1   # required for a host origin
+```
+
+```
+claude-cli ──MCP over an internal network──> playwright-mcp ──> browser-proxy ──> allowlist
+   │                                         (no mounts,          (default-deny,
+   └──> egress-proxy ──> Anthropic            no token)            generated from config)
+```
+
+The Playwright MCP server is **not** installed into the sandbox image: it runs
+as a sibling container that mounts no part of the blue zone, holds no Anthropic
+credentials, and reaches the network only through a second allowlist proxy. The
+session talks to it over an `internal` Docker network, so Claude gains no
+network of its own from it — only the ability to make MCP tool calls.
+
+- Interactive sessions only. `run-headless.sh` keeps `network_mode: none` and
+  tells you the browser isn't available rather than pretending otherwise.
+- The allowlist is enforced twice: at the network layer by the proxy, and at
+  the application layer by `--allowed-origins`.
+- `validate-blue-zone.sh` refuses an empty, malformed, wildcarded or
+  LAN-pointing allowlist before any container starts.
+- Every browser action prompts you unless you pre-approve tools with
+  `BLUE_ZONE_BROWSER_TOOLS`.
+
+Full design, threat model and the list of things it deliberately does **not**
+protect against: [`claude-docker/docs/playwright-mcp.md`](claude-docker/docs/playwright-mcp.md).
+
 ## GitLab CI
 
 The included `.gitlab-ci.yml` runs three stages on every MR:
@@ -477,6 +523,9 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Repo is never written directly | Writable mounts point at the per-project `/tmp/blue-zone/<project>` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile.ai-sandbox |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
+| Browser can't read the code | The optional `playwright-mcp` container mounts no blue-zone folder and gets no Anthropic token |
+| Browser can't reach anything unlisted | A second default-deny proxy on its own `internal` network, with an exact-host allowlist generated from `BLUE_ZONE_BROWSER_ORIGINS` — enforced again by the MCP server's `--allowed-origins` |
+| Browser never runs unattended | Interactive sessions only; headless/CI keeps `network_mode: none` |
 
 ---
 

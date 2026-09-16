@@ -122,6 +122,32 @@ Treat it as authoritative:
 - If a file appears there, it is red zone — do **not** ask for its contents.
 - It is regenerated on every run and mounted read-only, so do not edit it.
 
+## Browser automation (Playwright MCP) — only if it is available
+
+Some sessions are started with a browser attached, exposed as `playwright`
+MCP tools. If you do not see those tools, this section does not apply.
+
+The browser is **not** general internet access. It can reach a short,
+explicitly configured list of origins and nothing else — every other
+destination, including the developer's machine and LAN, is refused by a proxy
+before a connection is made. Requests that fail are usually policy, not bugs:
+say which origin you needed and why, and let the developer decide whether to
+add it. Never try to route around a refusal.
+
+The blue zone exists so this workspace's contents stay here. A browser is the
+one tool in the session that can carry them out, so:
+
+- Do not put workspace content — file contents, paths, code snippets, values
+  you read here — into a URL, query string, form field, or request body.
+- Do not use the browser to "share", upload, paste, or publish anything from
+  `/workspace`, however convenient it looks.
+- Use it for what it is for: loading the app or docs, inspecting rendered
+  pages, reproducing UI behaviour, and reading back what you see.
+
+Each browser action asks the developer for permission unless they pre-approved
+specific tools. Expect to be interrupted, and batch your intent into clear
+steps rather than many small navigations.
+
 ## Code Style
 - TypeScript strict mode
 - Functional components + hooks only (no class components)

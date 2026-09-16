@@ -174,11 +174,31 @@ your-project/
 ├── blue-zone.config.sh            <- Folder list + exclusion rules (edit this)
 ├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
 ├── ai-proxy/                      <- Egress allowlist proxy
+├── ai-playwright/                 <- Optional browser (Playwright MCP), own container
 ├── Dockerfile.ai-sandbox
 ├── docker-compose.ai-sandbox.yml  <- Base compose (no folder mounts hardcoded)
 ├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
+├── docker-compose.browser.yml     <- Generated browser services (git-ignored)
 └── .gitlab-ci.yml
 ```
+
+## Browser (Playwright MCP) — optional, off by default
+
+An interactive session can be given a real browser. It runs in its own
+container — not in the sandbox image — mounts no part of the blue zone, holds
+no Anthropic credentials, and can reach only the origins you list:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_BROWSER_ENABLED=1
+BLUE_ZONE_BROWSER_ORIGINS=(http://host.docker.internal:8081 https://staging.example.com)
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=1   # required for a host origin
+```
+
+`validate-blue-zone.sh` check 7 refuses an empty, malformed, wildcarded or
+LAN-pointing allowlist, and `start-cli.sh` re-checks it before starting
+anything. Headless/CI runs never get the browser. The design and its limits are
+documented in [`docs/playwright-mcp.md`](docs/playwright-mcp.md).
 
 ## Authentication
 

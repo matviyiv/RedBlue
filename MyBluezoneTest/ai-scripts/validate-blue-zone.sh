@@ -21,6 +21,10 @@ RESET="\033[0m"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
+# Browser egress policy helpers (check 7). Sourcing is harmless when the
+# browser is off — every function short-circuits on BLUE_ZONE_BROWSER_ENABLED.
+# shellcheck source=lib/blue-zone-browser.sh
+source "$SCRIPT_DIR/lib/blue-zone-browser.sh"
 
 # Defensive default: an older config may not define BLUE_ZONE_ROOT_FILES.
 declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
@@ -241,6 +245,33 @@ if [ -n "$CONFLICT_HITS" ]; then
   done <<< "$CONFLICT_HITS"
 else
   pass "No files contain merge conflict markers"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check 7: Browser (Playwright MCP) egress policy
+#
+# Only meaningful when the optional browser is enabled. The blue zone controls
+# what Claude can SEE; this controls where a browser it drives can SEND it. An
+# allowlist that is empty, malformed, wildcarded, or quietly pointed at your
+# LAN is a leak waiting to happen, so every one of those is a violation and the
+# session refuses to start.
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[7] Browser (Playwright MCP) egress policy...${RESET}"
+
+if ! blue_zone_browser_enabled; then
+  pass "Browser disabled (BLUE_ZONE_BROWSER_ENABLED=0) — no browser egress to check"
+else
+  BROWSER_REPORT="$(blue_zone_browser_check 2>&1)" && BROWSER_OK=true || BROWSER_OK=false
+  [ -n "$BROWSER_REPORT" ] && printf '%s\n' "$BROWSER_REPORT"
+  # blue_zone_browser_check prints its own VIOLATION/WARNING lines; reflect
+  # them in this script's counters so the summary and exit code agree.
+  BROWSER_VIOLATIONS=$(printf '%s\n' "$BROWSER_REPORT" | grep -c 'VIOLATION' || true)
+  BROWSER_WARNINGS=$(printf '%s\n' "$BROWSER_REPORT" | grep -c 'WARNING' || true)
+  VIOLATIONS=$((VIOLATIONS + BROWSER_VIOLATIONS))
+  WARNINGS=$((WARNINGS + BROWSER_WARNINGS))
+  if $BROWSER_OK; then
+    pass "Browser egress allowlist is explicit and narrow ($(blue_zone_browser_each | wc -l | tr -d ' ') origin(s))"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

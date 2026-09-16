@@ -102,6 +102,7 @@ confirm() {
 BLUE_ZONE_FOLDERS=()
 BLUE_ZONE_ROOT_FILES=()
 BLUE_ZONE_COMMON_EXCLUDES=()
+BLUE_ZONE_BROWSER_ORIGINS=()
 EXISTING_INSTALL=false
 if [ -f "$TARGET_DIR/blue-zone.config.sh" ]; then
   EXISTING_INSTALL=true
@@ -148,6 +149,14 @@ if [ "${#BLUE_ZONE_COMMON_EXCLUDES[@]}" -gt 0 ]; then
 else
   DEFAULT_EXCLUDES=".env* node_modules/"
 fi
+# Browser settings carried over from an existing install, so re-running to add
+# one folder never silently turns the browser on — or drops its allowlist.
+[ "${BLUE_ZONE_BROWSER_ENABLED:-0}" = "1" ] && DEFAULT_BROWSER="y" || DEFAULT_BROWSER="n"
+if [ "${#BLUE_ZONE_BROWSER_ORIGINS[@]}" -gt 0 ]; then
+  DEFAULT_BROWSER_ORIGINS="${BLUE_ZONE_BROWSER_ORIGINS[*]}"
+else
+  DEFAULT_BROWSER_ORIGINS=""
+fi
 
 # ── Step 2: copy pure tooling verbatim (always safe — materialized, not source) ─
 echo -e "${BOLD}[1/5] Copying tooling...${RESET}"
@@ -160,12 +169,16 @@ if [ -f "$TARGET_DIR/ai-scripts/CLAUDE.md" ]; then
   cp "$TARGET_DIR/ai-scripts/CLAUDE.md" "$PRIOR_CLAUDE_MD"
 fi
 
-mkdir -p "$TARGET_DIR/ai-proxy"
+mkdir -p "$TARGET_DIR/ai-proxy" "$TARGET_DIR/ai-playwright"
 cp -R "$SETUP_SRC/ai-scripts" "$TARGET_DIR/"
 cp    "$SETUP_SRC/Dockerfile.ai-sandbox" "$TARGET_DIR/"
 cp    "$SETUP_SRC/docker-compose.ai-sandbox.yml" "$TARGET_DIR/"
 cp    "$SETUP_SRC/ai-proxy/Dockerfile" "$TARGET_DIR/ai-proxy/"
 cp    "$SETUP_SRC/ai-proxy/tinyproxy.conf" "$TARGET_DIR/ai-proxy/"
+# Build context for the optional Playwright browser. Copied unconditionally so
+# enabling the browser later is a config edit, not a re-deploy — it builds
+# nothing and costs nothing while BLUE_ZONE_BROWSER_ENABLED=0.
+cp    "$SETUP_SRC/ai-playwright/Dockerfile" "$TARGET_DIR/ai-playwright/"
 # The tooling docs (how to run prepare/sync-in/sync-back/validate, the manifest,
 # configuring blue-zone folders, …) live in claude-docker/README.md. It isn't
 # project-specific like CLAUDE.md, so it's copied verbatim alongside the scripts
@@ -173,7 +186,7 @@ cp    "$SETUP_SRC/ai-proxy/tinyproxy.conf" "$TARGET_DIR/ai-proxy/"
 # find it.
 cp    "$SETUP_SRC/README.md" "$TARGET_DIR/ai-scripts/README.md"
 chmod +x "$TARGET_DIR"/ai-scripts/*.sh
-echo -e "${GREEN}  ai-scripts/{,README.md}, ai-proxy/{Dockerfile,tinyproxy.conf}, Dockerfile.ai-sandbox, docker-compose.ai-sandbox.yml${RESET}"
+echo -e "${GREEN}  ai-scripts/{,README.md}, ai-proxy/{Dockerfile,tinyproxy.conf}, ai-playwright/Dockerfile, Dockerfile.ai-sandbox, docker-compose.ai-sandbox.yml${RESET}"
 
 # ── Step 3: the questions ────────────────────────────────────────────────────
 echo -e "\n${BOLD}[2/5] A few questions (Enter accepts the default)...${RESET}\n"
@@ -183,6 +196,17 @@ ANS_ROOT_FILES="$(ask "Root files to stage alongside them (may be empty)" "$DEFA
 ANS_EXTRA_EXCLUDES="$(ask "Additional exclude patterns to append, beyond '$DEFAULT_EXCLUDES' (may be empty)" "")"
 ANS_EXTRA_DENYLIST="$(ask "Additional insecure/denylist strings to append (may be empty)" "")"
 ANS_EXTRA_DOMAINS="$(ask "Additional egress-allowed domains to append, e.g. api.example.com (may be empty)" "")"
+# The browser is a separate, narrower allowlist from the session's own egress —
+# so it is a separate question, and the default is off.
+ANS_BROWSER="$(ask "Enable the Playwright browser for interactive sessions? (y/n)" "$DEFAULT_BROWSER")"
+ANS_BROWSER_ORIGINS=""
+case "$ANS_BROWSER" in
+  [Yy]*)
+    echo    "    The browser can reach ONLY the origins you list here (scheme://host[:port])."
+    echo    "    Example: http://host.docker.internal:8081 https://staging.example.com"
+    ANS_BROWSER_ORIGINS="$(ask "  Browser-allowed origins" "$DEFAULT_BROWSER_ORIGINS")"
+    ;;
+esac
 ANS_DESCRIPTION="$(ask "One-line project description for ai-scripts/CLAUDE.md" "a software project")"
 
 # Normalize comma-separated input to space-separated.
@@ -191,6 +215,7 @@ ANS_ROOT_FILES="${ANS_ROOT_FILES//,/ }"
 ANS_EXTRA_EXCLUDES="${ANS_EXTRA_EXCLUDES//,/ }"
 ANS_EXTRA_DENYLIST="${ANS_EXTRA_DENYLIST//,/ }"
 ANS_EXTRA_DOMAINS="${ANS_EXTRA_DOMAINS//,/ }"
+ANS_BROWSER_ORIGINS="${ANS_BROWSER_ORIGINS//,/ }"
 
 # Pre-declared so a zero-field `read -ra` still leaves a defined (if empty)
 # array under `set -u` — on bash 3.2 (macOS /bin/bash) `read -ra arr <<< ""`
@@ -198,9 +223,20 @@ ANS_EXTRA_DOMAINS="${ANS_EXTRA_DOMAINS//,/ }"
 FOLDERS_ARR=()
 ROOT_FILES_ARR=()
 EXCLUDES_ARR=()
+BROWSER_ORIGINS_ARR=()
 read -ra FOLDERS_ARR <<< "$ANS_FOLDERS"
 read -ra ROOT_FILES_ARR <<< "$ANS_ROOT_FILES"
 read -ra EXCLUDES_ARR <<< "$DEFAULT_EXCLUDES $ANS_EXTRA_EXCLUDES"
+read -ra BROWSER_ORIGINS_ARR <<< "$ANS_BROWSER_ORIGINS"
+
+case "$ANS_BROWSER" in [Yy]*) BROWSER_ENABLED_VAL=1 ;; *) BROWSER_ENABLED_VAL=0 ;; esac
+# An origin reaching the host needs an explicit acknowledgement, in the config
+# and in the validator. Set it here when the answers imply it, so the wizard
+# doesn't produce a config that refuses its own origins on first run.
+BROWSER_HOSTGW_VAL=0
+for o in ${BROWSER_ORIGINS_ARR[@]+"${BROWSER_ORIGINS_ARR[@]}"}; do
+  case "$o" in *//host.docker.internal*|*//gateway.docker.internal*) BROWSER_HOSTGW_VAL=1 ;; esac
+done
 
 # ── Step 4: write blue-zone.config.sh (base copied verbatim, three array
 #    lines rewritten from the answers above) ─────────────────────────────────
@@ -222,6 +258,9 @@ q_array() {
 FOLDERS_LINE="$(q_array BLUE_ZONE_FOLDERS ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"})"
 ROOTFILES_LINE="$(q_array BLUE_ZONE_ROOT_FILES ${ROOT_FILES_ARR[@]+"${ROOT_FILES_ARR[@]}"})"
 EXCLUDES_LINE="$(q_array BLUE_ZONE_COMMON_EXCLUDES ${EXCLUDES_ARR[@]+"${EXCLUDES_ARR[@]}"})"
+BROWSER_ORIGINS_LINE="$(q_array BLUE_ZONE_BROWSER_ORIGINS ${BROWSER_ORIGINS_ARR[@]+"${BROWSER_ORIGINS_ARR[@]}"})"
+BROWSER_ENABLED_LINE="BLUE_ZONE_BROWSER_ENABLED=\"\${BLUE_ZONE_BROWSER_ENABLED:-$BROWSER_ENABLED_VAL}\""
+BROWSER_HOSTGW_LINE="BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=\"\${BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY:-$BROWSER_HOSTGW_VAL}\""
 
 # Selected folders the shipped template doesn't already have a case arm for
 # (currently src/ios/android) get a visible stub arm instead of silently
@@ -260,9 +299,17 @@ for f in ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"}; do
   } >> "$STUB_ARMS_FILE"
 done
 
-awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms_file="$STUB_ARMS_FILE" '
+awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms_file="$STUB_ARMS_FILE" -v browser_origins_line="$BROWSER_ORIGINS_LINE" -v browser_enabled_line="$BROWSER_ENABLED_LINE" -v browser_hostgw_line="$BROWSER_HOSTGW_LINE" '
   /^BLUE_ZONE_FOLDERS=/ { print folders_line; next }
   /^BLUE_ZONE_ROOT_FILES=/ { print rootfiles_line; next }
+  /^BLUE_ZONE_BROWSER_ENABLED=/ { print browser_enabled_line; next }
+  /^BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=/ { print browser_hostgw_line; next }
+  /^BLUE_ZONE_BROWSER_ORIGINS=\(/ {
+    print browser_origins_line
+    if ($0 !~ /\)[[:space:]]*$/) in_browser_origins = 1
+    next
+  }
+  in_browser_origins { if ($0 ~ /^\)/) in_browser_origins = 0; next }
   /^BLUE_ZONE_COMMON_EXCLUDES=\(/ {
     print excludes_line
     if ($0 !~ /\)[[:space:]]*$/) in_excludes = 1
@@ -333,9 +380,12 @@ fi
 
 # ── Step 7: .gitignore (append the generated-overlay entry if missing) ──────
 if [ ! -f "$TARGET_DIR/.gitignore" ]; then
-  printf '# Regenerated by ai-scripts/prepare-blue-zone.sh on every run — never committed.\ndocker-compose.blue-zone.yml\n' > "$TARGET_DIR/.gitignore"
-elif ! grep -qxF "docker-compose.blue-zone.yml" "$TARGET_DIR/.gitignore"; then
-  printf '\n# Regenerated by ai-scripts/prepare-blue-zone.sh on every run — never committed.\ndocker-compose.blue-zone.yml\n' >> "$TARGET_DIR/.gitignore"
+  printf '# Regenerated by ai-scripts/ on every run — never committed.\ndocker-compose.blue-zone.yml\ndocker-compose.browser.yml\n' > "$TARGET_DIR/.gitignore"
+else
+  for gi in docker-compose.blue-zone.yml docker-compose.browser.yml; do
+    grep -qxF "$gi" "$TARGET_DIR/.gitignore" && continue
+    printf '\n# Regenerated by ai-scripts/ on every run — never committed.\n%s\n' "$gi" >> "$TARGET_DIR/.gitignore"
+  done
 fi
 
 # ── Step 8: ai-scripts/CLAUDE.md — generated from the answers, never at
@@ -373,6 +423,37 @@ if $REGEN_CLAUDE_MD; then
     )
   )"
   [ -n "$EXCLUSION_BULLETS" ] || EXCLUSION_BULLETS="(no folders configured)"$'\n'
+
+  # Browser rules only when the browser is on — telling Claude about tools it
+  # does not have is noise, and quietly implies a capability that isn't there.
+  BROWSER_SECTION=""
+  if [ "$BROWSER_ENABLED_VAL" = "1" ]; then
+    BROWSER_SECTION="$(cat <<'BROWSERMD'
+## Browser automation (Playwright MCP)
+
+This session has a browser attached, exposed as `playwright` MCP tools. It is
+**not** general internet access: it can reach a short, explicitly configured
+list of origins and nothing else. Every other destination — including the
+developer's machine and LAN — is refused by a proxy before a connection is
+made. A blocked request is policy, not a bug: say which origin you needed and
+why, and never try to route around a refusal.
+
+The blue zone exists so this workspace's contents stay here, and the browser is
+the one tool that can carry them out. So:
+
+- Never put workspace content — file contents, paths, code snippets, values you
+  read here — into a URL, query string, form field, or request body.
+- Never use the browser to share, upload, paste, or publish anything from
+  `/workspace`.
+- Use it for loading the app or docs, inspecting rendered pages, reproducing UI
+  behaviour, and reading back what you see.
+
+BROWSERMD
+)"
+    # Command substitution eats trailing newlines; restore the blank line that
+    # separates this section from the next heading.
+    BROWSER_SECTION="$BROWSER_SECTION"$'\n'
+  fi
 
   cat > "$TARGET_DIR/ai-scripts/CLAUDE.md" <<CLAUDEMD
 # Claude Code - Project Context
@@ -441,6 +522,7 @@ workspace was mounted — files that exist on the host but are deliberately
 absent here. Use it to learn the true shape of the project without ever
 seeing red-zone contents. It is regenerated every run; do not edit it.
 
+${BROWSER_SECTION}
 ## Code Style
 
 Follow the existing conventions already used in this codebase.
@@ -457,7 +539,8 @@ echo -e "\n${BOLD}${CYAN}Done.${RESET} $([ "$EXISTING_INSTALL" = true ] && echo 
 echo -e "Review before your first real session:"
 echo -e "  ${BOLD}blue-zone.config.sh${RESET}            — folders, root files, exclude patterns"
 echo -e "  ${BOLD}blue-zone-insecure-strings.txt${RESET} — content denylist"
-echo -e "  ${BOLD}ai-proxy/filter${RESET}                — egress allowlist"
+echo -e "  ${BOLD}ai-proxy/filter${RESET}                — egress allowlist (the session's own)"
+echo -e "  ${BOLD}BLUE_ZONE_BROWSER_ORIGINS${RESET}      — browser allowlist, if you enabled the browser"
 echo -e "  ${BOLD}ai-scripts/CLAUDE.md${RESET}            — what Claude is told about this project"
 echo ""
 echo -e "Next steps (from $TARGET_DIR):"

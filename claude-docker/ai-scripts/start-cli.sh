@@ -122,6 +122,23 @@ if blue_zone_browser_enabled; then
   echo ""
 fi
 
+# Shared agents/skills, if the project commits any. Worth naming explicitly:
+# these change how the session behaves, and a developer should know which ones
+# are in play before it starts.
+if [ -n "${BLUE_ZONE_CLAUDE_DIR:-}" ] && [ -d "$BLUE_ZONE_CLAUDE_DIR" ]; then
+  SHARED_LISTED=0
+  for sub in ${BLUE_ZONE_CLAUDE_SUBDIRS[@]+"${BLUE_ZONE_CLAUDE_SUBDIRS[@]}"}; do
+    [ -d "$BLUE_ZONE_CLAUDE_DIR/$sub" ] || continue
+    if [ "$SHARED_LISTED" -eq 0 ]; then
+      echo -e "${BOLD}Shared agents & skills${RESET} (from $BLUE_ZONE_CLAUDE_DIR/, mounted read-only):"
+      SHARED_LISTED=1
+    fi
+    N=$(find "$BLUE_ZONE_CLAUDE_DIR/$sub" -type f ! -name '.gitkeep' 2>/dev/null | wc -l | tr -d ' ')
+    echo -e "  ${GREEN}$sub${RESET}  $N file(s) -> /workspace/.claude/$sub"
+  done
+  [ "$SHARED_LISTED" -eq 1 ] && echo ""
+fi
+
 echo -e "${BOLD}Working alongside Claude:${RESET}"
 echo -e "  Keep editing this repo while the session runs. From another terminal,"
 echo -e "  ${GREEN}./ai-scripts/sync-in.sh${RESET} merges your changes into the live blue zone"

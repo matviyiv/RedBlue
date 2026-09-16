@@ -39,6 +39,42 @@ BLUE_ZONE_FOLDERS=(src ios android)
 # here — `.env*` files are refused, and anything secret belongs in the red zone.
 BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json)
 
+# ── Shared agents and skills (.claude-blue-zone) ─────────────────────────────
+# A folder in your repo — committed, reviewed and shared like any other source
+# — holding the Claude Code agents and skills your team wants every blue-zone
+# session to have. Each listed subdirectory is mounted READ-ONLY at
+# /workspace/.claude/<subdir>, which is where Claude Code looks for them.
+#
+#     .claude-blue-zone/
+#     ├── agents/            -> /workspace/.claude/agents   (subagent definitions)
+#     └── skills/            -> /workspace/.claude/skills   (skill directories)
+#
+# It is deliberately NOT your project's own `.claude/` directory: the tooling
+# never touches that. This folder holds only what you are happy to hand to a
+# sandboxed session, and its contents are mounted read-only so a session cannot
+# rewrite the agents that review it.
+#
+# Unlike the blue-zone folders, this is mounted straight from the repo rather
+# than staged — it is tooling input, not code under review, so nothing is
+# filtered out of it. That is exactly why validate-blue-zone.sh scans it for
+# secrets and denylisted strings before anything starts: whatever is in here
+# reaches the container verbatim.
+#
+# Set to an empty string to disable the mount entirely. Uses a single-dash
+# default (like BLUE_ZONE_ALLOW_MARKER below) so an explicitly empty value
+# really disables it; only an unset variable falls back to the default folder.
+BLUE_ZONE_CLAUDE_DIR="${BLUE_ZONE_CLAUDE_DIR-.claude-blue-zone}"
+
+# Which subdirectories of the folder above are mounted. Claude Code also reads
+# `commands/` (slash commands) and `output-styles/` from a project `.claude/`
+# directory — add them here if your team shares those too. A subdirectory that
+# doesn't exist in the repo is skipped silently, so listing one is always safe.
+#
+# `settings.json` is deliberately not mountable through this mechanism: a
+# committed settings file could widen tool permissions inside the sandbox, and
+# that decision belongs to whoever starts the session, not to the repo.
+BLUE_ZONE_CLAUDE_SUBDIRS=(agents skills)
+
 # ── Exclusions applied to EVERY folder ───────────────────────────────────────
 # rsync --exclude patterns stripped from every folder before it is staged.
 # Keep secrets and installed dependencies out no matter which folder they're in.

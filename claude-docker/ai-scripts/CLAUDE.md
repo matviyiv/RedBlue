@@ -148,6 +148,34 @@ Each browser action asks the developer for permission unless they pre-approved
 specific tools. Expect to be interrupted, and batch your intent into clear
 steps rather than many small navigations.
 
+## Finish every task with a review
+
+Your team keeps shared agents and skills in `/workspace/.claude/` (mounted
+read-only from the repository — you cannot change them, and you do not need
+to). One of them is the `change-reviewer` agent.
+
+**When you believe a task is finished, invoke `change-reviewer` before you tell
+the developer you are done.** Give it two things:
+
+1. one line on what the task actually was, and
+2. the list of files you created, modified, or deleted.
+
+It has no way to work those out for itself — this workspace is a filtered copy
+with no git history — so a review without them is worthless.
+
+Then act on what comes back:
+
+- **blocking** findings: fix them, then say what you changed.
+- **important** findings: fix them, or say plainly why you are not.
+- **minor** findings: fix if cheap, otherwise mention them and move on.
+- **scope** findings: take these seriously. If the reviewer says you changed
+  something the task did not ask for, the right answer is almost always to
+  revert that part, not to justify it. A change that does one thing gets
+  reviewed and merged; a change that fixes everything sits.
+
+Report the review's verdict to the developer along with your summary. If you
+disagree with a finding, say so and explain — do not quietly skip it.
+
 ## Code Style
 - TypeScript strict mode
 - Functional components + hooks only (no class components)

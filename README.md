@@ -123,6 +123,9 @@ RedBlue/
 │   │   ├── Dockerfile              #   tinyproxy on alpine
 │   │   ├── tinyproxy.conf          #   default-deny forward proxy
 │   │   └── filter                  #   allowlist: Anthropic + GitHub domains
+│   ├── .claude-blue-zone/          # Shared agents & skills (committed, mounted :ro)
+│   │   ├── agents/                 #   change-reviewer — post-task code review
+│   │   └── skills/                 #   team skills go here
 │   ├── Dockerfile.ai-sandbox       # node:26-alpine + Claude Code CLI, non-root user
 │   ├── docker-compose.ai-sandbox.yml  # Network isolation, resource caps
 │   └── .gitlab-ci.yml              # Full pipeline: build → validate → review
@@ -454,6 +457,54 @@ before running any script.
 
 ---
 
+## Shared agents and skills (`.claude-blue-zone/`)
+
+Agents and skills are the difference between a session that knows how your team
+works and one that guesses. Keep them in `.claude-blue-zone/` — committed,
+reviewed in merge requests, and mounted read-only where Claude Code looks for
+them:
+
+```
+your-repo/.claude-blue-zone/agents/  ──ro──>  /workspace/.claude/agents
+your-repo/.claude-blue-zone/skills/  ──ro──>  /workspace/.claude/skills
+```
+
+It is deliberately **not** your project's own `.claude/` — the tooling still
+never touches that. This is the separate, curated set you are willing to hand to
+a sandboxed session, and it is read-only in the container, so a session cannot
+rewrite the agents that review it.
+
+Unlike the blue-zone folders it is mounted straight from the repo rather than
+filtered, because an agent definition put through a content filter would quietly
+break. That exception is paid for by `validate-blue-zone.sh` check 8, which
+scans the whole folder with the same secret patterns and denylist used
+everywhere else — across every file type, since agents are Markdown — and
+refuses to start the session on a hit.
+
+### The `change-reviewer` agent
+
+Ships in the folder and runs when a task is finished, before the session reports
+it done. It is read-only (`Read`, `Grep`, `Glob`) — it reports findings, the
+session fixes them. A reviewer with edit rights is exactly how a targeted change
+turns into a widespread one.
+
+| | What it looks for |
+|---|---|
+| **Scope** | Files the task never implied, drive-by refactors, reformatting, unrelated bugs fixed in passing — and the opposite, a task left half-done |
+| **Correctness** | Logic that doesn't match the task, unhandled errors, leaks, debug leftovers, hardcoded values |
+| **Consistency** | Existing helpers and types reused rather than reinvented; naming, structure and error handling matching the surrounding code |
+| **Tests** | A test that would fail without the change — and loudly, any existing test weakened, skipped or deleted to make something pass |
+
+`ai-scripts/CLAUDE.md` makes invoking it a rule, and tells Claude that a scope
+finding is usually answered by reverting that part rather than justifying it.
+The session must pass it the task and the changed-file list: there is no git in
+the workspace, so it cannot work those out for itself.
+
+Details and how to add your own:
+[`claude-docker/docs/shared-agents-skills.md`](claude-docker/docs/shared-agents-skills.md).
+
+---
+
 ## Optional: a browser, outside the sandbox image
 
 Some work needs a real browser — loading the app, checking a rendered screen,
@@ -522,6 +573,8 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Interactive session can't reach your LAN | `claude-cli` has no route off the `internal` network; the dual-homed `egress-proxy` denies every destination except the allowlisted public hosts in `ai-proxy/filter` (Anthropic, GitHub) |
 | Repo is never written directly | Writable mounts point at the per-project `/tmp/blue-zone/<project>` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile.ai-sandbox |
+| Shared agents can't be rewritten by the session | `.claude-blue-zone/` is mounted `:ro`; changes go through the repo and review |
+| Shared agents can't smuggle secrets in | `validate-blue-zone.sh` check 8 scans the folder with the same secret patterns and denylist, across every file type |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 | Browser can't read the code | The optional `playwright-mcp` container mounts no blue-zone folder and gets no Anthropic token |
 | Browser can't reach anything unlisted | A second default-deny proxy on its own `internal` network, with an exact-host allowlist generated from `BLUE_ZONE_BROWSER_ORIGINS` — enforced again by the MCP server's `--allowed-origins` |

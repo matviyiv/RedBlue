@@ -445,6 +445,7 @@ TOOLING=(
   blue-zone-insecure-strings.txt
   ai-proxy
   ai-playwright
+  .claude-blue-zone
   Dockerfile.ai-sandbox
   docker-compose.ai-sandbox.yml
 )

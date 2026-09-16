@@ -179,6 +179,24 @@ cp    "$SETUP_SRC/ai-proxy/tinyproxy.conf" "$TARGET_DIR/ai-proxy/"
 # enabling the browser later is a config edit, not a re-deploy — it builds
 # nothing and costs nothing while BLUE_ZONE_BROWSER_ENABLED=0.
 cp    "$SETUP_SRC/ai-playwright/Dockerfile" "$TARGET_DIR/ai-playwright/"
+# Shared agents/skills. This is team-owned content once it lands in a project —
+# an agent someone tuned must survive a tooling update — so each file is copied
+# only when it is absent, never over the top of an existing one.
+SHARED_NEW=0
+SHARED_KEPT=0
+if [ -d "$SETUP_SRC/.claude-blue-zone" ]; then
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ -e "$TARGET_DIR/.claude-blue-zone/$rel" ]; then
+      SHARED_KEPT=$((SHARED_KEPT + 1))
+      continue
+    fi
+    mkdir -p "$(dirname "$TARGET_DIR/.claude-blue-zone/$rel")"
+    cp "$SETUP_SRC/.claude-blue-zone/$rel" "$TARGET_DIR/.claude-blue-zone/$rel"
+    SHARED_NEW=$((SHARED_NEW + 1))
+  done < <(cd "$SETUP_SRC/.claude-blue-zone" && find . -type f | sed 's|^\./||' | sort)
+fi
+
 # The tooling docs (how to run prepare/sync-in/sync-back/validate, the manifest,
 # configuring blue-zone folders, …) live in claude-docker/README.md. It isn't
 # project-specific like CLAUDE.md, so it's copied verbatim alongside the scripts
@@ -187,6 +205,9 @@ cp    "$SETUP_SRC/ai-playwright/Dockerfile" "$TARGET_DIR/ai-playwright/"
 cp    "$SETUP_SRC/README.md" "$TARGET_DIR/ai-scripts/README.md"
 chmod +x "$TARGET_DIR"/ai-scripts/*.sh
 echo -e "${GREEN}  ai-scripts/{,README.md}, ai-proxy/{Dockerfile,tinyproxy.conf}, ai-playwright/Dockerfile, Dockerfile.ai-sandbox, docker-compose.ai-sandbox.yml${RESET}"
+if [ "$SHARED_NEW" -gt 0 ] || [ "$SHARED_KEPT" -gt 0 ]; then
+  echo -e "${GREEN}  .claude-blue-zone/: $SHARED_NEW new file(s)$([ "$SHARED_KEPT" -gt 0 ] && echo ", $SHARED_KEPT kept as-is")${RESET}"
+fi
 
 # ── Step 3: the questions ────────────────────────────────────────────────────
 echo -e "\n${BOLD}[2/5] A few questions (Enter accepts the default)...${RESET}\n"
@@ -523,6 +544,23 @@ absent here. Use it to learn the true shape of the project without ever
 seeing red-zone contents. It is regenerated every run; do not edit it.
 
 ${BROWSER_SECTION}
+## Finish every task with a review
+
+Your team keeps shared agents in \`/workspace/.claude/agents\` (mounted
+read-only from the repository). One of them is \`change-reviewer\`.
+
+**When you believe a task is finished, invoke \`change-reviewer\` before you
+tell the developer you are done.** Give it one line on what the task was and
+the list of files you created, modified, or deleted — it cannot work those out
+for itself, since this workspace is a filtered copy with no git history.
+
+Then act on what comes back: fix **blocking** and **important** findings, and
+take **scope** findings seriously — if the reviewer says you changed something
+the task did not ask for, the right answer is almost always to revert that
+part. A change that does one thing gets merged; a change that fixes everything
+sits. Report the verdict to the developer with your summary, and if you
+disagree with a finding, say so rather than quietly skipping it.
+
 ## Code Style
 
 Follow the existing conventions already used in this codebase.
@@ -541,6 +579,7 @@ echo -e "  ${BOLD}blue-zone.config.sh${RESET}            — folders, root files
 echo -e "  ${BOLD}blue-zone-insecure-strings.txt${RESET} — content denylist"
 echo -e "  ${BOLD}ai-proxy/filter${RESET}                — egress allowlist (the session's own)"
 echo -e "  ${BOLD}BLUE_ZONE_BROWSER_ORIGINS${RESET}      — browser allowlist, if you enabled the browser"
+echo -e "  ${BOLD}.claude-blue-zone/${RESET}             — shared agents/skills (committed, mounted read-only)"
 echo -e "  ${BOLD}ai-scripts/CLAUDE.md${RESET}            — what Claude is told about this project"
 echo ""
 echo -e "Next steps (from $TARGET_DIR):"

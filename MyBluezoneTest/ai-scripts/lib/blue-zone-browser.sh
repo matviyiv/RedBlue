@@ -59,6 +59,11 @@ declare -p BLUE_ZONE_BROWSER_DEV_PORTS >/dev/null 2>&1 || BLUE_ZONE_BROWSER_DEV_
 # published to the host — nothing outside Docker can reach it.
 BLUE_ZONE_BROWSER_MCP_PORT="${BLUE_ZONE_BROWSER_MCP_PORT:-8931}"
 
+# Compose service name of the MCP container, which is also its DNS name on the
+# `browser` network. Referenced by the MCP config, the session's NO_PROXY
+# exemption, and start-cli.sh's container management — keep them in step.
+BLUE_ZONE_BROWSER_MCP_HOST="playwright-mcp"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # blue_zone_browser_enabled — true when the browser should be wired up.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +271,14 @@ blue_zone_browser_write() {
   local dir="$BLUE_ZONE_BROWSER_DIR"
   local scheme host port esc
   local connect_ports="" origins_arg="" dev_bypass_arg="" dev_alias_block=""
+  # Hosts the SESSION must reach without going through its own egress proxy.
+  # claude-cli runs with HTTP_PROXY/HTTPS_PROXY pointed at egress-proxy, so
+  # without this its MCP request to playwright-mcp is handed to a proxy that
+  # is not even on the `browser` network — tinyproxy default-denies the host
+  # and returns "403 Filtered", which an MCP client reads as an auth challenge
+  # ("needs authentication", Dynamic Client Registration rejected). It is not
+  # an auth problem: it is the request never leaving the proxy.
+  local no_proxy_hosts="localhost,127.0.0.1,$BLUE_ZONE_BROWSER_MCP_HOST"
 
   # The dev server is inside claude-cli, on the internal `browser` network that
   # only the browser container shares. browser-proxy is deliberately NOT on that
@@ -273,6 +286,10 @@ blue_zone_browser_write() {
   # it directly. This bypass therefore grants no reach the browser did not
   # already have; it just stops the proxy swallowing a request it cannot route.
   if blue_zone_browser_dev_enabled; then
+    # Same reasoning for the dev server: from inside claude-cli the name
+    # resolves to itself, so a curl to check its own server must not be
+    # handed to the proxy either.
+    no_proxy_hosts="$no_proxy_hosts,$BLUE_ZONE_BROWSER_DEV_HOST"
     dev_bypass_arg="
       - --proxy-bypass=$BLUE_ZONE_BROWSER_DEV_HOST"
     # `docker compose run` does not apply a service's network aliases unless it
@@ -355,7 +372,7 @@ blue_zone_browser_write() {
   "mcpServers": {
     "playwright": {
       "type": "http",
-      "url": "http://playwright-mcp:${BLUE_ZONE_BROWSER_MCP_PORT}/mcp"
+      "url": "http://${BLUE_ZONE_BROWSER_MCP_HOST}:${BLUE_ZONE_BROWSER_MCP_PORT}/mcp"
     }
   }
 }
@@ -390,6 +407,12 @@ services:
     volumes:
 HEAD
     echo "      - $dir/mcp.json:/workspace/.mcp.json:ro"
+    # Exempt the in-Docker hosts from the session's own egress proxy. Overrides
+    # the base file's NO_PROXY; every other proxy variable is left untouched, so
+    # Anthropic traffic still goes through the allowlist exactly as before.
+    echo "    environment:"
+    echo "      NO_PROXY: \"$no_proxy_hosts\""
+    echo "      no_proxy: \"$no_proxy_hosts\""
     [ -n "$dev_alias_block" ] && printf '%s\n' "$dev_alias_block"
     cat <<HEAD
 

@@ -353,12 +353,24 @@ reaches it as `http://playwright-mcp:8931`, so that Host is refused until it is
 named:
 
 ```
---allowed-hosts=playwright-mcp      # host only, no port; comma-separated for several
+--allowed-hosts=playwright-mcp:8931,playwright-mcp
 ```
 
-The generated command now passes this. It is a different flag from
-`--allowed-origins`, which controls what the *browser* may request — one is
-about who may talk to the server, the other about where the browser may go.
+Both forms, deliberately. The README describes this as a list of *hosts*, but
+the refusal echoes the entries verbatim and the default one carries the port
+("Access is only allowed at localhost:8931"), so the comparison is against the
+whole `Host` header. Passing the bare name was still refused — the message then
+read "…only allowed at playwright-mcp", which is how you can tell the flag took
+effect but did not match. Listing both matches whichever way a given version
+compares, and both name the same container.
+
+Do **not** use `--allowed-hosts "*"`, which appears in a lot of advice online:
+that turns the DNS-rebinding check off altogether. Naming the one host you
+actually use costs nothing.
+
+It is a different flag from `--allowed-origins`, which controls what the
+*browser* may request — one is about who may talk to the server, the other
+about where the browser may go.
 
 ### "Listening on http://localhost:8931" — is the bind wrong?
 

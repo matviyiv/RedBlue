@@ -445,8 +445,17 @@ HEAD
       # header it recognises, defaulting to the host it is bound to. The session
       # reaches it as http://playwright-mcp:8931, so without this it answers
       # "403 Access is only allowed at localhost:8931" — which an MCP client
-      # then reports as an auth failure. Host only, no port.
-      - --allowed-hosts=$BLUE_ZONE_BROWSER_MCP_HOST
+      # then reports as an auth failure.
+      #
+      # Both forms are listed on purpose. The README calls this a list of hosts,
+      # but the refusal message echoes the entries verbatim and the default entry
+      # carries the port ("localhost:8931"), so the comparison is against the
+      # whole Host header. Passing "playwright-mcp" alone was still refused, with
+      # the message then reading "…only allowed at playwright-mcp". Listing both
+      # matches whichever way a given version compares, and both name the same
+      # container, so nothing is widened. Do NOT use "*" — that turns the
+      # rebinding check off entirely.
+      - --allowed-hosts=$BLUE_ZONE_BROWSER_MCP_HOST:$BLUE_ZONE_BROWSER_MCP_PORT,$BLUE_ZONE_BROWSER_MCP_HOST
       - --proxy-server=http://browser-proxy:8888$dev_bypass_arg
       - --allowed-origins=$origins_arg
       - --output-dir=/tmp/playwright-output

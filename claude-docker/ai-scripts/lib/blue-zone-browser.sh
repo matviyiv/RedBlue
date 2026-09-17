@@ -26,9 +26,12 @@
 #     compromised page) cannot read the code under review.
 #   • browser-proxy is NOT on the `browser` network, so the session cannot use
 #     it as a proxy directly — only Chromium, inside playwright-mcp, can.
-#   • Chromium is started with --proxy-server pointing at browser-proxy, and
-#     the MCP server additionally enforces --allowed-origins. Network layer and
-#     app layer, from the same list.
+#   • Chromium is started with --proxy-server pointing at browser-proxy. The
+#     proxy is THE boundary: it is the only thing that decides what the browser
+#     can reach. --allowed-origins is passed as well, from the same list, but
+#     upstream is explicit that it "does not serve as a security boundary and
+#     does not affect redirects" — so treat it as a convenience that stops
+#     obvious mistakes early, never as a control you rely on.
 #   • A dev server Claude runs inside claude-cli is the one exception to the
 #     proxy: it is reached DIRECTLY across the `browser` network, because
 #     browser-proxy is not on that network and could never route to it. That
@@ -378,11 +381,12 @@ blue_zone_browser_write() {
 }
 JSON
 
-  # ── --allowed-origins for the MCP server (app-layer enforcement) ──────────
-  # Semicolon-separated, the format @playwright/mcp expects. This duplicates
-  # the proxy allowlist on purpose: the proxy is the control that holds if the
-  # MCP server is ever misconfigured, and this is the control that holds if a
-  # page tries a redirect chain the proxy would technically permit.
+  # ── --allowed-origins for the MCP server ──────────────────────────────────
+  # Semicolon-separated, the format @playwright/mcp expects. It mirrors the
+  # proxy allowlist, but it is NOT a second enforcement layer: upstream states
+  # it "does not serve as a security boundary and does not affect redirects".
+  # It is passed because failing early and clearly beats failing at the proxy,
+  # and because a future version may harden it. The proxy is what holds.
   while read -r scheme host port; do
     [ -n "$host" ] || continue
     [ -n "$origins_arg" ] && origins_arg="$origins_arg;"
@@ -437,6 +441,12 @@ HEAD
       - --browser=chromium
       - --host=0.0.0.0
       - --port=$BLUE_ZONE_BROWSER_MCP_PORT
+      # DNS-rebinding protection: the server only serves requests whose Host
+      # header it recognises, defaulting to the host it is bound to. The session
+      # reaches it as http://playwright-mcp:8931, so without this it answers
+      # "403 Access is only allowed at localhost:8931" — which an MCP client
+      # then reports as an auth failure. Host only, no port.
+      - --allowed-hosts=$BLUE_ZONE_BROWSER_MCP_HOST
       - --proxy-server=http://browser-proxy:8888$dev_bypass_arg
       - --allowed-origins=$origins_arg
       - --output-dir=/tmp/playwright-output

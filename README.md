@@ -553,8 +553,9 @@ network of its own from it — only the ability to make MCP tool calls.
 
 - Interactive sessions only. `run-headless.sh` keeps `network_mode: none` and
   tells you the browser isn't available rather than pretending otherwise.
-- The allowlist is enforced twice: at the network layer by the proxy, and at
-  the application layer by `--allowed-origins`.
+- The proxy is the boundary — default-deny, exact-host. The same list is passed
+  to the MCP server as `--allowed-origins`, but upstream says that is explicitly
+  *not* a security boundary, so it is a convenience, not a second layer.
 - `validate-blue-zone.sh` refuses an empty, malformed, wildcarded or
   LAN-pointing allowlist before any container starts.
 - Every browser action prompts you unless you pre-approve tools with
@@ -594,7 +595,7 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Shared agents can't smuggle secrets in | `validate-blue-zone.sh` check 8 scans the folder with the same secret patterns and denylist, across every file type |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
 | Browser can't read the code | The optional `playwright-mcp` container mounts no blue-zone folder and gets no Anthropic token |
-| Browser can't reach anything unlisted | A second default-deny proxy on its own `internal` network, with an exact-host allowlist generated from `BLUE_ZONE_BROWSER_ORIGINS` — enforced again by the MCP server's `--allowed-origins` |
+| Browser can't reach anything unlisted | A second default-deny proxy on its own `internal` network, with an exact-host allowlist generated from `BLUE_ZONE_BROWSER_ORIGINS`. (`--allowed-origins` mirrors it but is not a security boundary upstream — the proxy is.) |
 | Browser never runs unattended | Interactive sessions only; headless/CI keeps `network_mode: none` |
 | A dev server Claude runs is reachable, your machine is not | `claude-cli` gets a `devserver` alias on the internal `browser` network; Chromium bypasses the proxy for that name only, and that traffic never leaves Docker |
 

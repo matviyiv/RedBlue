@@ -86,19 +86,19 @@ Each arrow is the only path between those two boxes. What that buys:
 | The session gains no internet from the browser | `browser` network is `internal: true` — no gateway |
 | The session cannot use the browser's proxy directly | `browser-proxy` is not attached to the `browser` network |
 | A dev server in the sandbox is reachable, the host is not | `claude-cli` gets a `devserver` alias on the internal `browser` network and Chromium bypasses the proxy for that name only — traffic never leaves Docker |
-| The browser cannot reach anything off-allowlist | `browser-egress` is `internal: true`; `browser-proxy` is its only peer, and it is default-deny |
+| The browser cannot reach anything off-allowlist | `browser-egress` is `internal: true`; `browser-proxy` is its only peer, and it is default-deny. (`--allowed-origins` mirrors the list but is explicitly *not* a security boundary upstream — the proxy is.) |
 | The browser cannot read the code under review | no blue-zone volumes on `playwright-mcp` |
 | The browser cannot spend your Anthropic quota | `CLAUDE_CODE_OAUTH_TOKEN` is never passed to it |
 | Nothing survives the session | `--isolated`, `read_only: true`, tmpfs-only writable space, containers removed on exit |
 | CI never gets a browser | `run-headless.sh` keeps `network_mode: none` and says so if the browser is configured |
 
-The allowlist is enforced **twice, independently**: at the network layer by
-`browser-proxy` (default-deny, exact-host regex, CONNECT limited to the
-configured https ports) and at the application layer by the MCP server's
-`--allowed-origins`. Neither is trusted to be the only control — the proxy
-holds if the MCP server is misconfigured or its flags change meaning between
-versions, and `--allowed-origins` holds against redirect chains the proxy would
-technically permit.
+**`browser-proxy` is the boundary**, and the only one: default-deny, exact-host
+regex, CONNECT limited to the configured https ports. The same list is also
+passed to the MCP server as `--allowed-origins`, but that is a convenience, not
+a second layer — upstream is explicit that it "does not serve as a security
+boundary and does not affect redirects". It makes an obvious mistake fail early
+and clearly; it is not something to rely on. If you are reasoning about what the
+browser can reach, reason about the proxy.
 
 ---
 
@@ -341,6 +341,40 @@ The general shape is worth remembering when adding anything to this setup: a
 `403 Filtered` page always means *a proxy refused a host*, never that a server
 wants credentials. Check which proxy generated it, and whether that proxy could
 reach the destination at all.
+
+### "403 Access is only allowed at localhost:8931"
+
+Also surfaced as an auth failure ("Dynamic Client Registration rejected"), but
+this 403 comes from the MCP server itself, not from a proxy — read the body.
+
+`@playwright/mcp` has DNS-rebinding protection: it serves only requests whose
+`Host` header it recognises, defaulting to the host it is bound to. The session
+reaches it as `http://playwright-mcp:8931`, so that Host is refused until it is
+named:
+
+```
+--allowed-hosts=playwright-mcp      # host only, no port; comma-separated for several
+```
+
+The generated command now passes this. It is a different flag from
+`--allowed-origins`, which controls what the *browser* may request — one is
+about who may talk to the server, the other about where the browser may go.
+
+### "Listening on http://localhost:8931" — is the bind wrong?
+
+No. The server prints `localhost` for readability even when bound to all
+interfaces; the display helper substitutes it for `0.0.0.0`. `--host=0.0.0.0`
+is in effect and the container is reachable from the session.
+
+**Do not copy the client config it prints.** It suggests
+`{"url": "http://localhost:8931/mcp"}`, which is wrong here twice over: inside
+`claude-cli`, `localhost` is the session's own container, and Claude Code needs
+an explicit transport `type` that the banner omits. The generated
+`/workspace/.mcp.json` has the right form:
+
+```json
+{"mcpServers": {"playwright": {"type": "http", "url": "http://playwright-mcp:8931/mcp"}}}
+```
 
 ### The browser container exits immediately
 

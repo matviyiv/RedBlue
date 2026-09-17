@@ -57,6 +57,7 @@
 declare -p BLUE_ZONE_BROWSER_ORIGINS >/dev/null 2>&1 || BLUE_ZONE_BROWSER_ORIGINS=()
 declare -p BLUE_ZONE_BROWSER_DEV_PORTS >/dev/null 2>&1 || BLUE_ZONE_BROWSER_DEV_PORTS=()
 : "${BLUE_ZONE_BROWSER_DEV_HOST:=devserver}"
+: "${BLUE_ZONE_BROWSER_MCP_TRANSPORT:=sse}"
 
 # The MCP server's listening port on the internal `browser` network. Not
 # published to the host — nothing outside Docker can reach it.
@@ -163,6 +164,14 @@ blue_zone_browser_check() {
       bad=1
     fi
   done
+
+  case "$BLUE_ZONE_BROWSER_MCP_TRANSPORT" in
+    sse|http) ;;
+    *)
+      echo -e "  ${RED}VIOLATION${RESET} - BLUE_ZONE_BROWSER_MCP_TRANSPORT must be 'sse' or 'http'"
+      echo    "              (got '$BLUE_ZONE_BROWSER_MCP_TRANSPORT')."
+      bad=1 ;;
+  esac
 
   case "$BLUE_ZONE_BROWSER_DEV_HOST" in
     ''|*[!a-zA-Z0-9-]*)
@@ -370,12 +379,20 @@ blue_zone_browser_write() {
   # Passed with --strict-mcp-config so this is the ONLY MCP server the session
   # can load: a server left behind in the persisted ~/.claude.json from an
   # earlier run cannot quietly come along.
+  #
+  # The endpoint follows the transport: /sse for sse, /mcp for Streamable HTTP.
+  # sse is the default because Claude Code's Streamable HTTP client omits the
+  # "Accept: application/json, text/event-stream" header the spec requires, and
+  # @playwright/mcp correctly answers 406 — which surfaces, unhelpfully, as an
+  # auth failure. Set BLUE_ZONE_BROWSER_MCP_TRANSPORT=http once that is fixed.
+  local mcp_path="mcp"
+  [ "$BLUE_ZONE_BROWSER_MCP_TRANSPORT" = "sse" ] && mcp_path="sse"
   cat > "$dir/mcp.json" <<JSON
 {
   "mcpServers": {
     "playwright": {
-      "type": "http",
-      "url": "http://${BLUE_ZONE_BROWSER_MCP_HOST}:${BLUE_ZONE_BROWSER_MCP_PORT}/mcp"
+      "type": "$BLUE_ZONE_BROWSER_MCP_TRANSPORT",
+      "url": "http://${BLUE_ZONE_BROWSER_MCP_HOST}:${BLUE_ZONE_BROWSER_MCP_PORT}/$mcp_path"
     }
   }
 }

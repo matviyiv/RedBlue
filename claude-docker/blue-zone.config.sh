@@ -286,6 +286,21 @@ BLUE_ZONE_BROWSER_TOOLS="${BLUE_ZONE_BROWSER_TOOLS:-}"
 BLUE_ZONE_BROWSER_IMAGE="${BLUE_ZONE_BROWSER_IMAGE:-mcr.microsoft.com/playwright:v1.55.0-noble}"
 BLUE_ZONE_BROWSER_MCP_VERSION="${BLUE_ZONE_BROWSER_MCP_VERSION:-0.0.81}"
 
+# Which MCP transport the session uses to talk to the browser container:
+#
+#   sse    the /sse endpoint. The DEFAULT, because Claude Code's Streamable
+#          HTTP client does not send the "Accept: application/json,
+#          text/event-stream" header that transport's spec requires, so a
+#          spec-compliant server answers 406 Not Acceptable and the server
+#          never loads. See anthropics/claude-code issue #45368.
+#   http   the /mcp endpoint (Streamable HTTP). Correct, and what you should
+#          switch to once that bug is fixed — @playwright/mcp calls /sse the
+#          legacy transport.
+#
+# Both endpoints are served by the same container; this only changes which one
+# the generated .mcp.json points at.
+BLUE_ZONE_BROWSER_MCP_TRANSPORT="${BLUE_ZONE_BROWSER_MCP_TRANSPORT:-sse}"
+
 # Memory cap for the browser container (Chromium is hungry; it is not the
 # Claude container, so this is separate from CLAUDE_MEMORY).
 BLUE_ZONE_BROWSER_MEMORY="${BLUE_ZONE_BROWSER_MEMORY:-2g}"

@@ -245,7 +245,7 @@ Nothing about the browser is hand-edited. On each interactive run:
 |---|---|
 | `<blue zone root>/.browser/filter` | exact-host allowlist for the browser proxy |
 | `<blue zone root>/.browser/tinyproxy.conf` | default-deny proxy config, `ConnectPort` per https port |
-| `<blue zone root>/.browser/mcp.json` | mounted read-only at `/workspace/.mcp.json` |
+| `<blue zone root>/.browser/mcp.json` | mounted read-only at `/workspace/.mcp.json`; endpoint follows `BLUE_ZONE_BROWSER_MCP_TRANSPORT` |
 | `docker-compose.browser.yml` | the two browser services, the `devserver` alias, layered via `COMPOSE_FILE` |
 
 `.browser/` lives at the blue zone **root**, not inside a mounted folder, so it
@@ -342,6 +342,38 @@ The general shape is worth remembering when adding anything to this setup: a
 wants credentials. Check which proxy generated it, and whether that proxy could
 reach the destination at all.
 
+### "406 Not Acceptable: Client must accept both application/json and text/event-stream"
+
+Reported as `SDK auth failed: Dynamic Client Registration rejected (HTTP 406)`,
+with a JSON-RPC body. Despite the wording this is good news: the body is a
+reply *from the MCP server*, so the proxy exemption and the host check are both
+working and the two are talking.
+
+It is a **client bug, not a configuration problem**. The MCP Streamable HTTP
+spec requires clients to send `Accept: application/json, text/event-stream`;
+Claude Code's HTTP transport does not, and a spec-compliant server — which
+`@playwright/mcp` is — answers 406. Tracked upstream as
+[claude-code#45368](https://github.com/anthropics/claude-code/issues/45368) and
+[claude-agent-sdk-typescript#202](https://github.com/anthropics/claude-agent-sdk-typescript/issues/202).
+
+The same container also serves the older SSE endpoint, which Claude Code does
+speak correctly, so that is the default:
+
+```bash
+BLUE_ZONE_BROWSER_MCP_TRANSPORT=sse    # default: /sse   — works today
+BLUE_ZONE_BROWSER_MCP_TRANSPORT=http   #          /mcp   — switch once #45368 lands
+```
+
+Nothing about the container changes; only which endpoint the generated
+`.mcp.json` points at. When the client bug is fixed, switch to `http` —
+`@playwright/mcp` calls `/sse` the legacy transport, so it will not be there
+forever.
+
+If the auth prompt survives the switch, Claude Code may have cached "this server
+needs auth" from the earlier failures. That state lives in the `claude-home`
+volume; `./ai-scripts/start-cli.sh --clear` wipes it, at the cost of also
+clearing your login and session history.
+
 ### "403 Access is only allowed at localhost:8931"
 
 Also surfaced as an auth failure ("Dynamic Client Registration rejected"), but
@@ -385,8 +417,11 @@ an explicit transport `type` that the banner omits. The generated
 `/workspace/.mcp.json` has the right form:
 
 ```json
-{"mcpServers": {"playwright": {"type": "http", "url": "http://playwright-mcp:8931/mcp"}}}
+{"mcpServers": {"playwright": {"type": "sse", "url": "http://playwright-mcp:8931/sse"}}}
 ```
+
+(`sse` by default — see the 406 entry above for why, and how to switch to
+Streamable HTTP once Claude Code sends the header that transport requires.)
 
 ### The browser container exits immediately
 

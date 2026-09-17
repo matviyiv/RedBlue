@@ -559,6 +559,27 @@ TAIL
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# blue_zone_browser_prompt_note — the dev-server facts, as one line for
+# --append-system-prompt.
+#
+# ai-scripts/CLAUDE.md explains the workflow, but it cannot name the port: that
+# comes from config, and a session told "for example :8080" while the project
+# runs on :3000 will reach for the wrong URL. Worse, the natural guess is
+# http://localhost:PORT, which inside the browser container resolves to the
+# browser itself and fails as ERR_BLOCKED_BY_CLIENT. So state the exact origins.
+# ─────────────────────────────────────────────────────────────────────────────
+blue_zone_browser_prompt_note() {
+  blue_zone_browser_dev_enabled || return 0
+  local scheme host port urls=""
+  while read -r scheme host port; do
+    [ -n "$host" ] || continue
+    [ -n "$urls" ] && urls="$urls or "
+    urls="$urls$scheme://$host:$port"
+  done < <(blue_zone_browser_dev_each)
+  printf '%s' "Browser + dev server: a dev server you start in this container is reachable from the browser ONLY at $urls. Never navigate to http://localhost:<port> — inside the browser container localhost is the browser itself, and the attempt fails with ERR_BLOCKED_BY_CLIENT. Bind the server to 0.0.0.0 (not localhost) and accept the host name '$BLUE_ZONE_BROWSER_DEV_HOST' (webpack-dev-server: allowedHosts; vite: server.allowedHosts). If the port you need is not listed above, it is not configured — say so instead of trying other ports."
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # blue_zone_browser_summary — show the operator exactly what they just allowed.
 # ─────────────────────────────────────────────────────────────────────────────
 blue_zone_browser_summary() {

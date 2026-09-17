@@ -95,7 +95,13 @@ if blue_zone_browser_enabled; then
   # `docker compose run` ignores a service's network aliases unless told not to.
   # Without this the dev-server alias generated into the overlay would simply
   # not exist, and the browser could not resolve the name at all.
-  blue_zone_browser_dev_enabled && COMPOSE_RUN_ARGS+=(--use-aliases)
+  if blue_zone_browser_dev_enabled; then
+    COMPOSE_RUN_ARGS+=(--use-aliases)
+    # Tell the session the exact dev-server URL. CLAUDE.md teaches the workflow
+    # but cannot know the port, and a session left to guess reaches for
+    # http://localhost:<port>, which is the browser's own container.
+    CLAUDE_EXTRA_ARGS+=(--append-system-prompt "$(blue_zone_browser_prompt_note)")
+  fi
   echo -e "  ${GREEN}OK${RESET} egress policy accepted"
 fi
 

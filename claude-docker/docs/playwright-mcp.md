@@ -447,18 +447,40 @@ image is left doing what it is actually good at — OS libraries, fonts, and the
 non-root `pwuser` account. If you bump `BLUE_ZONE_BROWSER_MCP_VERSION`, rebuild
 (`./ai-scripts/init.sh`) and the matching browser comes with it.
 
-### The browser cannot load the dev server
+### "ERR_BLOCKED_BY_CLIENT" navigating to the dev server
 
-Almost always one of two things, both in the dev server's own config:
+Two causes, and the error names neither. Note first that this is *not* the
+proxy: a proxy refusal arrives as a tinyproxy 403 page. `ERR_BLOCKED_BY_CLIENT`
+is Chromium refusing to make the request at all, which here means
+`--allowed-origins` did not list it.
+
+**The URL used `localhost`.** Inside the browser container, `localhost` is the
+browser — the dev server is in a different container. `http://localhost:3000`
+can never work, however the server is bound. The right URL is
+`http://devserver:<port>`. The session is now told the exact URL at startup via
+`--append-system-prompt`, because `ai-scripts/CLAUDE.md` can explain the
+workflow but cannot know your port number.
+
+**The port is not in `BLUE_ZONE_BROWSER_DEV_PORTS`.** The list is the allowlist:
+a server on 3000 while the config says `(8080)` is refused, correctly. Set the
+port your dev server actually binds:
+
+```bash
+BLUE_ZONE_BROWSER_DEV_PORTS=(3000)
+```
+
+The session banner prints every reachable origin before Claude starts, so if the
+port you expect is not on that list, fix the config rather than the URL.
+
+### The dev server URL resolves but the page will not load
+
+If the browser reaches `http://devserver:<port>` and gets nothing, the cause is
+in the dev server's own config:
 
 - it is bound to localhost instead of `0.0.0.0`, so it is reachable only inside
   `claude-cli`; or
 - it rejects the `Host: devserver` header — set `allowedHosts` (webpack) or
   `server.allowedHosts` (vite).
-
-Navigating to `http://localhost:8080` from the browser fails for a third
-reason: localhost there is the *browser's* container. Use the exact origin the
-session banner prints.
 
 ---
 

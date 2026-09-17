@@ -284,7 +284,7 @@ BLUE_ZONE_BROWSER_TOOLS="${BLUE_ZONE_BROWSER_TOOLS:-}"
 # stack is a supply-chain hole in exactly the place you least want one. Bump
 # deliberately, and prefer a digest (image@sha256:...) over a tag for the base.
 BLUE_ZONE_BROWSER_IMAGE="${BLUE_ZONE_BROWSER_IMAGE:-mcr.microsoft.com/playwright:v1.55.0-noble}"
-BLUE_ZONE_BROWSER_MCP_VERSION="${BLUE_ZONE_BROWSER_MCP_VERSION:-latest}"
+BLUE_ZONE_BROWSER_MCP_VERSION="${BLUE_ZONE_BROWSER_MCP_VERSION:-0.0.81}"
 
 # Memory cap for the browser container (Chromium is hungry; it is not the
 # Claude container, so this is separate from CLAUDE_MEMORY).

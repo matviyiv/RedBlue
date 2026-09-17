@@ -47,7 +47,7 @@
 : "${BLUE_ZONE_BROWSER_ALLOW_PRIVATE_IPS:=0}"
 : "${BLUE_ZONE_BROWSER_TOOLS:=}"
 : "${BLUE_ZONE_BROWSER_IMAGE:=mcr.microsoft.com/playwright:v1.55.0-noble}"
-: "${BLUE_ZONE_BROWSER_MCP_VERSION:=latest}"
+: "${BLUE_ZONE_BROWSER_MCP_VERSION:=0.0.81}"
 : "${BLUE_ZONE_BROWSER_MEMORY:=2g}"
 : "${BLUE_ZONE_BROWSER_COMPOSE_FILE:=docker-compose.browser.yml}"
 : "${BLUE_ZONE_BROWSER_DIR:=${BLUE_ZONE_ROOT:-/tmp/blue-zone/project}/.browser}"

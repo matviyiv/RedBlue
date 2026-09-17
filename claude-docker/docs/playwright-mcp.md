@@ -290,9 +290,11 @@ know you lack.
   reachable from a page as `localhost:8931`; `--allowed-origins` is what keeps
   a page from requesting it.
 - **Supply chain.** `BLUE_ZONE_BROWSER_IMAGE` and
-  `BLUE_ZONE_BROWSER_MCP_VERSION` default to a tag and to `latest`. Pin both —
-  ideally the image by digest — before any real use. The MCP package is
-  installed with `--ignore-scripts`.
+  `BLUE_ZONE_BROWSER_MCP_VERSION` default to an image tag and an exact package
+  version (`0.0.81`), not to `latest`. Prefer a digest for the base image before
+  any real use. The MCP package is installed with `--ignore-scripts`, and the
+  browser it needs is then installed explicitly through that package's own
+  `playwright-core` (see below).
 
 ---
 
@@ -340,6 +342,30 @@ The general shape is worth remembering when adding anything to this setup: a
 wants credentials. Check which proxy generated it, and whether that proxy could
 reach the destination at all.
 
+### The browser container exits immediately
+
+**"no such file or directory" / `exec: … not found`.** The entrypoint binary is
+not in the image. `@playwright/mcp` installs its CLI as **`playwright-mcp`**;
+an earlier version of the Dockerfile guessed `mcp-server-playwright`, and the
+only symptom was this message, which says nothing about the cause. The
+Dockerfile now verifies the binary exists *at build time* and fails the build
+with an explanation rather than producing an image that cannot start.
+
+**"Executable doesn't exist at /ms-playwright/chromium-XXXX/…".** The Chromium
+build revision the bundled Playwright wants is not the one in the image.
+`@playwright/mcp` pins an exact Playwright version (0.0.81 pins
+`1.64.0-alpha-2026-09-14`), and Playwright resolves browsers by build revision,
+not by "whatever Chromium is present" — so it does not follow the base image's
+own Playwright version. Pinning `BLUE_ZONE_BROWSER_IMAGE` to a matching tag is a
+losing game, because the pairing changes on every MCP release.
+
+The Dockerfile sidesteps it: after installing the MCP package it runs that
+package's own `playwright-core` CLI to install Chromium, so the browser is by
+construction the one that version expects, whatever either version is. The base
+image is left doing what it is actually good at — OS libraries, fonts, and the
+non-root `pwuser` account. If you bump `BLUE_ZONE_BROWSER_MCP_VERSION`, rebuild
+(`./ai-scripts/init.sh`) and the matching browser comes with it.
+
 ### The browser cannot load the dev server
 
 Almost always one of two things, both in the dev server's own config:
@@ -367,8 +393,9 @@ session banner prints.
   session is told to report which origin it needed rather than working around
   the refusal — decide whether to add it, don't widen the list reflexively.
 - Bumping `@playwright/mcp` can change flag names (`--allowed-origins`,
-  `--isolated`, `--proxy-server`, `--output-dir`). If the container fails to
-  start after a version bump, check the generated `command:` in
-  `docker-compose.browser.yml` against that version's `--help`, and adjust
-  `blue_zone_browser_write`. The proxy allowlist is unaffected either way —
-  which is exactly why it is the primary control.
+  `--isolated`, `--proxy-server`, `--proxy-bypass`, `--output-dir`) and always
+  changes the Chromium revision it expects. Rebuild after a bump so the matching
+  browser is installed; if the container then fails to start, check the
+  generated `command:` in `docker-compose.browser.yml` against that version's
+  `--help` and adjust `blue_zone_browser_write`. The proxy allowlist is
+  unaffected either way — which is exactly why it is the primary control.

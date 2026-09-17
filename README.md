@@ -512,11 +512,28 @@ reproducing a UI bug. A browser is also the one tool that can carry workspace
 content back out over HTTP, so it is off by default and, when on, lives in its
 own container with its own, much narrower allowlist.
 
+Most often you want Claude to run the dev server *in the blue zone* and open
+its own work — that needs no egress at all:
+
 ```bash
 # blue-zone.config.sh
 BLUE_ZONE_BROWSER_ENABLED=1
+BLUE_ZONE_BROWSER_DEV_PORTS=(8080)     # webpack/vite, started by Claude
+BLUE_ZONE_BROWSER_ORIGINS=()           # nothing external
+```
+
+Claude starts the server bound to `0.0.0.0` and opens `http://devserver:8080`.
+Both containers are inside the sandbox, so that traffic never leaves the
+internal Docker networks and the proxy allowlist stays empty — the tightest
+configuration there is. (Claude must set `allowedHosts` to accept the
+`devserver` name; `ai-scripts/CLAUDE.md` tells it so.)
+
+To reach things outside instead, list them — a server on your machine needs an
+explicit acknowledgement:
+
+```bash
 BLUE_ZONE_BROWSER_ORIGINS=(
-  http://host.docker.internal:8081     # your dev server
+  http://host.docker.internal:8081     # a dev server on YOUR machine
   https://staging.example.com          # a staging deployment
 )
 BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=1   # required for a host origin
@@ -579,6 +596,7 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Browser can't read the code | The optional `playwright-mcp` container mounts no blue-zone folder and gets no Anthropic token |
 | Browser can't reach anything unlisted | A second default-deny proxy on its own `internal` network, with an exact-host allowlist generated from `BLUE_ZONE_BROWSER_ORIGINS` — enforced again by the MCP server's `--allowed-origins` |
 | Browser never runs unattended | Interactive sessions only; headless/CI keeps `network_mode: none` |
+| A dev server Claude runs is reachable, your machine is not | `claude-cli` gets a `devserver` alias on the internal `browser` network; Chromium bypasses the proxy for that name only, and that traffic never leaves Docker |
 
 ---
 

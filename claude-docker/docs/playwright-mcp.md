@@ -85,6 +85,7 @@ Each arrow is the only path between those two boxes. What that buys:
 |---|---|
 | The session gains no internet from the browser | `browser` network is `internal: true` — no gateway |
 | The session cannot use the browser's proxy directly | `browser-proxy` is not attached to the `browser` network |
+| A dev server in the sandbox is reachable, the host is not | `claude-cli` gets a `devserver` alias on the internal `browser` network and Chromium bypasses the proxy for that name only — traffic never leaves Docker |
 | The browser cannot reach anything off-allowlist | `browser-egress` is `internal: true`; `browser-proxy` is its only peer, and it is default-deny |
 | The browser cannot read the code under review | no blue-zone volumes on `playwright-mcp` |
 | The browser cannot spend your Anthropic quota | `CLAUDE_CODE_OAUTH_TOKEN` is never passed to it |
@@ -146,6 +147,96 @@ interactive-only.
 
 ---
 
+## Testing a dev server Claude runs itself
+
+The common case: Claude edits the UI, starts the project's dev server inside the
+sandbox, and opens it in the browser to see whether the change worked.
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_BROWSER_ENABLED=1
+BLUE_ZONE_BROWSER_DEV_PORTS=(8080)
+BLUE_ZONE_BROWSER_ORIGINS=()          # nothing external needed
+```
+
+That is the whole configuration. `BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY` stays
+`0`: nothing here touches your machine.
+
+This is the **tightest** way to use the browser, not a loosening of it. The dev
+server is in the sandbox, the browser is in the sandbox, and the traffic between
+them never leaves the internal Docker networks. With no external origins the
+proxy allowlist is empty, so every destination outside Docker is denied.
+
+### Why it needs its own mechanism
+
+`browser-proxy` is deliberately not on the `browser` network — that is what
+stops the session using it as a general-purpose proxy. The same fact means it
+could never route to `claude-cli` either, so a dev server inside the session is
+unreachable *through* the proxy, by construction.
+
+Two pieces close that gap, and neither widens the browser's reach:
+
+1. **A network alias.** `claude-cli` gets the name `devserver` on the `browser`
+   network, which only it and the browser container share. `start-cli.sh` adds
+   `--use-aliases` to the `docker compose run`, because compose does not apply a
+   service's aliases to a `run` container otherwise — without it the name simply
+   would not resolve.
+2. **A proxy bypass.** Chromium is given `--proxy-bypass=devserver` so requests
+   to that name go direct across the internal network instead of to a proxy that
+   cannot reach it. The origin is also added to `--allowed-origins`, so the
+   app-layer check still applies.
+
+The bypass grants nothing new: that path already existed at the network layer,
+and it leads to the session's own container.
+
+```mermaid
+flowchart LR
+    subgraph sandbox["claude-cli"]
+        claude["Claude Code"]
+        dev["dev server<br/>0.0.0.0:8080<br/><i>alias: devserver</i>"]
+    end
+    subgraph browsercon["playwright-mcp"]
+        mcp["Chromium"]
+    end
+    bproxy["browser-proxy<br/><i>empty allowlist</i>"]
+
+    claude -->|MCP| mcp
+    mcp -->|"direct — proxy bypassed<br/>network: browser (internal)"| dev
+    mcp -.->|"everything else → denied"| bproxy
+```
+
+### What Claude has to do
+
+Two settings, and they are the cause of a failure to load almost every time:
+
+- **Bind to `0.0.0.0`.** The browser is in a different container; a server on
+  localhost is reachable only from inside `claude-cli`.
+- **Allow the `devserver` hostname.** Dev servers reject requests with an
+  unrecognised `Host` header — `allowedHosts: 'all'` for webpack-dev-server,
+  `server.allowedHosts` for vite.
+
+```bash
+npx webpack serve --host 0.0.0.0 --port 8080     # then open http://devserver:8080
+```
+
+`ai-scripts/CLAUDE.md` tells Claude exactly this, including that
+`http://localhost:8080` will not work from the browser — it resolves to the
+browser's own container.
+
+The tooling cannot check any of it before the session: nothing is listening yet
+when validation runs, and the server is started later by Claude. What validation
+does check is that the ports are numbers in range and the alias is a usable
+hostname; the rest is a runtime symptom with two likely causes.
+
+### Two practical notes
+
+- `npm install` works: the npm and yarn registries are already on the session's
+  own egress allowlist.
+- Add your build output directory (`dist/`, `build/`) to
+  `BLUE_ZONE_COMMON_EXCLUDES`, or compiled assets sync back into your repo.
+
+---
+
 ## What is generated, and where
 
 Nothing about the browser is hand-edited. On each interactive run:
@@ -155,7 +246,7 @@ Nothing about the browser is hand-edited. On each interactive run:
 | `<blue zone root>/.browser/filter` | exact-host allowlist for the browser proxy |
 | `<blue zone root>/.browser/tinyproxy.conf` | default-deny proxy config, `ConnectPort` per https port |
 | `<blue zone root>/.browser/mcp.json` | mounted read-only at `/workspace/.mcp.json` |
-| `docker-compose.browser.yml` | the two browser services, layered via `COMPOSE_FILE` |
+| `docker-compose.browser.yml` | the two browser services, the `devserver` alias, layered via `COMPOSE_FILE` |
 
 `.browser/` lives at the blue zone **root**, not inside a mounted folder, so it
 is never part of the workspace, never scanned as project content, and never

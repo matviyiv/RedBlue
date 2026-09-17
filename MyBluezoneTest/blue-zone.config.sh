@@ -229,8 +229,38 @@ BLUE_ZONE_BROWSER_ENABLED="${BLUE_ZONE_BROWSER_ENABLED:-0}"
 #     )
 #
 # Keep this as short as the task needs. Every origin you add is somewhere the
-# session could send workspace content, one navigation at a time.
+# session could send workspace content, one navigation at a time. Leave it empty
+# when the browser only has to reach a dev server Claude runs itself (see
+# BLUE_ZONE_BROWSER_DEV_PORTS below) — that is the safest configuration there is.
 BLUE_ZONE_BROWSER_ORIGINS=()
+
+# ── A dev server Claude runs INSIDE the sandbox ──────────────────────────────
+# Ports that a dev server (webpack, vite, next, …) will listen on inside the
+# Claude container, so the browser can open what Claude just built.
+#
+#     BLUE_ZONE_BROWSER_DEV_PORTS=(8080)
+#
+# This is the tightest way to use the browser: the dev server is in the sandbox,
+# the browser is in the sandbox, and traffic between them never leaves the
+# internal Docker network — no host route, no egress, no allowlist involved. A
+# session that only needs this can leave BLUE_ZONE_BROWSER_ORIGINS empty.
+#
+# Claude must bind the server to 0.0.0.0 (not localhost — that would only be
+# reachable inside its own container) and accept the container's hostname. For
+# webpack-dev-server that means:
+#
+#     webpack serve --host 0.0.0.0        # and in the config:
+#     devServer: { allowedHosts: 'all' }  # or ['devserver']
+#
+# The browser reaches it at http://<BLUE_ZONE_BROWSER_DEV_HOST>:<port>, and
+# ai-scripts/CLAUDE.md tells Claude exactly that.
+BLUE_ZONE_BROWSER_DEV_PORTS=()
+
+# The hostname the browser uses for the dev server. It is attached to the Claude
+# container as a network alias, so it resolves from the browser container and
+# nowhere else. Change it only if it collides with something in your setup —
+# it also has to appear in the dev server's allowed-hosts list.
+BLUE_ZONE_BROWSER_DEV_HOST="${BLUE_ZONE_BROWSER_DEV_HOST:-devserver}"
 
 # Reaching a server on YOUR machine (host.docker.internal) is a real hole in the
 # container boundary: the proxy gets a route to the host, and from the host to

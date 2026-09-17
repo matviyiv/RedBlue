@@ -29,6 +29,11 @@
 #   • Chromium is started with --proxy-server pointing at browser-proxy, and
 #     the MCP server additionally enforces --allowed-origins. Network layer and
 #     app layer, from the same list.
+#   • A dev server Claude runs inside claude-cli is the one exception to the
+#     proxy: it is reached DIRECTLY across the `browser` network, because
+#     browser-proxy is not on that network and could never route to it. That
+#     traffic never leaves Docker, so there is nothing for an egress allowlist
+#     to allow — the bypass adds no reach the browser did not already have.
 #
 # Sourced, not executed. Requires blue-zone.config.sh to be sourced first.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -47,6 +52,8 @@
 : "${BLUE_ZONE_BROWSER_COMPOSE_FILE:=docker-compose.browser.yml}"
 : "${BLUE_ZONE_BROWSER_DIR:=${BLUE_ZONE_ROOT:-/tmp/blue-zone/project}/.browser}"
 declare -p BLUE_ZONE_BROWSER_ORIGINS >/dev/null 2>&1 || BLUE_ZONE_BROWSER_ORIGINS=()
+declare -p BLUE_ZONE_BROWSER_DEV_PORTS >/dev/null 2>&1 || BLUE_ZONE_BROWSER_DEV_PORTS=()
+: "${BLUE_ZONE_BROWSER_DEV_HOST:=devserver}"
 
 # The MCP server's listening port on the internal `browser` network. Not
 # published to the host — nothing outside Docker can reach it.
@@ -57,6 +64,24 @@ BLUE_ZONE_BROWSER_MCP_PORT="${BLUE_ZONE_BROWSER_MCP_PORT:-8931}"
 # ─────────────────────────────────────────────────────────────────────────────
 blue_zone_browser_enabled() {
   [ "${BLUE_ZONE_BROWSER_ENABLED:-0}" = "1" ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# blue_zone_browser_dev_enabled — true when a dev server inside the sandbox is
+# part of this session's browser setup.
+# ─────────────────────────────────────────────────────────────────────────────
+blue_zone_browser_dev_enabled() {
+  [ "${#BLUE_ZONE_BROWSER_DEV_PORTS[@]}" -gt 0 ]
+}
+
+# Dev-server origins, one per line, in the same "scheme host port" shape as
+# blue_zone_browser_each so both can be consumed the same way.
+blue_zone_browser_dev_each() {
+  local port
+  for port in ${BLUE_ZONE_BROWSER_DEV_PORTS[@]+"${BLUE_ZONE_BROWSER_DEV_PORTS[@]}"}; do
+    [ -n "$port" ] || continue
+    printf 'http %s %s\n' "$BLUE_ZONE_BROWSER_DEV_HOST" "$port"
+  done
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,11 +139,36 @@ blue_zone_browser_check() {
   local bad=0 origin parsed scheme host port
   local n="${#BLUE_ZONE_BROWSER_ORIGINS[@]}"
 
-  if [ "$n" -eq 0 ]; then
-    echo -e "  ${RED}VIOLATION${RESET} - browser is enabled but BLUE_ZONE_BROWSER_ORIGINS is empty."
-    echo    "              Nothing would be reachable. List the origins the session"
-    echo    "              actually needs in blue-zone.config.sh, or set"
-    echo    "              BLUE_ZONE_BROWSER_ENABLED=0."
+  # Dev-server ports first: an empty external allowlist is perfectly fine — and
+  # is the safest setup there is — when the browser's only job is to open what
+  # Claude just built inside the sandbox.
+  local port
+  for port in ${BLUE_ZONE_BROWSER_DEV_PORTS[@]+"${BLUE_ZONE_BROWSER_DEV_PORTS[@]}"}; do
+    case "$port" in
+      ''|*[!0-9]*)
+        echo -e "  ${RED}VIOLATION${RESET} - dev server port '$port' is not a number."
+        bad=1
+        continue ;;
+    esac
+    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+      echo -e "  ${RED}VIOLATION${RESET} - dev server port '$port' is out of range (1-65535)."
+      bad=1
+    fi
+  done
+
+  case "$BLUE_ZONE_BROWSER_DEV_HOST" in
+    ''|*[!a-zA-Z0-9-]*)
+      echo -e "  ${RED}VIOLATION${RESET} - BLUE_ZONE_BROWSER_DEV_HOST ('$BLUE_ZONE_BROWSER_DEV_HOST') is not a"
+      echo    "              usable hostname. It becomes a Docker network alias, so it must"
+      echo    "              be letters, digits and hyphens only."
+      bad=1 ;;
+  esac
+
+  if [ "$n" -eq 0 ] && ! blue_zone_browser_dev_enabled; then
+    echo -e "  ${RED}VIOLATION${RESET} - browser is enabled but nothing is reachable."
+    echo    "              Set BLUE_ZONE_BROWSER_DEV_PORTS for a dev server Claude runs"
+    echo    "              inside the sandbox, and/or list external origins in"
+    echo    "              BLUE_ZONE_BROWSER_ORIGINS. Or set BLUE_ZONE_BROWSER_ENABLED=0."
     return 1
   fi
 
@@ -215,7 +265,25 @@ blue_zone_browser_write() {
   local project_root="$1"
   local dir="$BLUE_ZONE_BROWSER_DIR"
   local scheme host port esc
-  local connect_ports="" origins_arg=""
+  local connect_ports="" origins_arg="" dev_bypass_arg="" dev_alias_block=""
+
+  # The dev server is inside claude-cli, on the internal `browser` network that
+  # only the browser container shares. browser-proxy is deliberately NOT on that
+  # network, so proxying this traffic could never work — Chromium has to reach
+  # it directly. This bypass therefore grants no reach the browser did not
+  # already have; it just stops the proxy swallowing a request it cannot route.
+  if blue_zone_browser_dev_enabled; then
+    dev_bypass_arg="
+      - --proxy-bypass=$BLUE_ZONE_BROWSER_DEV_HOST"
+    # `docker compose run` does not apply a service's network aliases unless it
+    # is asked to (--use-aliases, added by start-cli.sh), so this alias plus
+    # that flag are what make the name resolve at all.
+    dev_alias_block="
+    networks:
+      browser:
+        aliases:
+          - $BLUE_ZONE_BROWSER_DEV_HOST"
+  fi
 
   mkdir -p "$dir"
 
@@ -302,7 +370,7 @@ JSON
     [ -n "$host" ] || continue
     [ -n "$origins_arg" ] && origins_arg="$origins_arg;"
     origins_arg="$origins_arg$scheme://$host:$port"
-  done < <(blue_zone_browser_each)
+  done < <(blue_zone_browser_each; blue_zone_browser_dev_each)
 
   # ── compose overlay ───────────────────────────────────────────────────────
   {
@@ -315,11 +383,14 @@ JSON
 # the session uses for Anthropic, and neither mounts any part of the blue zone.
 # ─────────────────────────────────────────────────────────────────────────────
 services:
-  # The session gets the MCP config, read-only, and nothing else new.
+  # The session gets the MCP config, read-only, and — when a dev server is
+  # configured — a stable name on the `browser` network for the browser to
+  # reach it by. Nothing else new.
   claude-cli:
     volumes:
 HEAD
     echo "      - $dir/mcp.json:/workspace/.mcp.json:ro"
+    [ -n "$dev_alias_block" ] && printf '%s\n' "$dev_alias_block"
     cat <<HEAD
 
   # Playwright MCP — OUTSIDE the Claude sandbox image, in its own container.
@@ -343,7 +414,7 @@ HEAD
       - --browser=chromium
       - --host=0.0.0.0
       - --port=$BLUE_ZONE_BROWSER_MCP_PORT
-      - --proxy-server=http://browser-proxy:8888
+      - --proxy-server=http://browser-proxy:8888$dev_bypass_arg
       - --allowed-origins=$origins_arg
       - --output-dir=/tmp/playwright-output
     read_only: true
@@ -387,7 +458,7 @@ HEAD
     cap_drop:
       - ALL
     # tinyproxy binds its port as root and then drops to the unprivileged
-    # `tinyproxy` user itself (the User/Group directives in the generated
+    # \`tinyproxy\` user itself (the User/Group directives in the generated
     # config). setuid/setgid are the only capabilities that needs — without
     # them it cannot drop privileges and refuses to start.
     cap_add:
@@ -441,7 +512,16 @@ blue_zone_browser_summary() {
     echo -e "    ${GREEN}•${RESET} $scheme://$host:$port"
     shown=$((shown + 1))
   done < <(blue_zone_browser_each)
-  [ "$shown" -gt 0 ] || echo -e "    ${RED}(none)${RESET}"
+  [ "$shown" -gt 0 ] || echo -e "    ${YELLOW}(none — external egress fully denied)${RESET}"
+  if blue_zone_browser_dev_enabled; then
+    echo -e "  ${BOLD}Dev server inside the sandbox${RESET} (direct, never leaves Docker):"
+    while read -r scheme host port; do
+      [ -n "$host" ] || continue
+      echo -e "    ${GREEN}•${RESET} $scheme://$host:$port"
+    done < <(blue_zone_browser_dev_each)
+    echo -e "    Claude must bind it to ${BOLD}0.0.0.0${RESET} and allow the host"
+    echo -e "    name ${BOLD}$BLUE_ZONE_BROWSER_DEV_HOST${RESET} (webpack: ${BOLD}allowedHosts${RESET})."
+  fi
   if [ -n "$BLUE_ZONE_BROWSER_TOOLS" ]; then
     echo -e "  Pre-approved tools: ${YELLOW}$BLUE_ZONE_BROWSER_TOOLS${RESET}"
   else

@@ -148,6 +148,37 @@ Each browser action asks the developer for permission unless they pre-approved
 specific tools. Expect to be interrupted, and batch your intent into clear
 steps rather than many small navigations.
 
+### Testing a dev server you run yourself
+
+If the session banner listed a **dev server** origin (for example
+`http://devserver:8080`), you can start the project's dev server here and open
+it in the browser to check your own changes. Two things are not optional:
+
+1. **Bind to `0.0.0.0`, not localhost.** The browser runs in a different
+   container. A server on localhost is reachable only from inside this one, and
+   the page will simply never load.
+2. **Allow the `devserver` hostname.** Modern dev servers reject requests whose
+   `Host` header they do not recognise. For webpack-dev-server that is
+   `allowedHosts: 'all'` (or `['devserver']`); vite calls it `server.allowedHosts`.
+
+```bash
+# webpack-dev-server
+npx webpack serve --host 0.0.0.0 --port 8080
+# vite
+npx vite --host 0.0.0.0 --port 8080
+```
+
+Then navigate to the exact origin from the banner — `http://devserver:8080`,
+**not** `http://localhost:8080`, which resolves to the browser's own container
+and will fail.
+
+Run the server in the background so you keep control of the session, and stop
+it when you are done. If the page will not load, check those two settings
+before assuming the tooling is broken: they are the cause almost every time.
+Nothing about this reaches the outside world — the dev server and the browser
+are both inside the sandbox — so it is the cheapest, safest way to verify a UI
+change you just made.
+
 ## Finish every task with a review
 
 Your team keeps shared agents and skills in `/workspace/.claude/` (mounted

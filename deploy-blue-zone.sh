@@ -103,6 +103,7 @@ BLUE_ZONE_FOLDERS=()
 BLUE_ZONE_ROOT_FILES=()
 BLUE_ZONE_COMMON_EXCLUDES=()
 BLUE_ZONE_BROWSER_ORIGINS=()
+BLUE_ZONE_BROWSER_DEV_PORTS=()
 EXISTING_INSTALL=false
 if [ -f "$TARGET_DIR/blue-zone.config.sh" ]; then
   EXISTING_INSTALL=true
@@ -156,6 +157,11 @@ if [ "${#BLUE_ZONE_BROWSER_ORIGINS[@]}" -gt 0 ]; then
   DEFAULT_BROWSER_ORIGINS="${BLUE_ZONE_BROWSER_ORIGINS[*]}"
 else
   DEFAULT_BROWSER_ORIGINS=""
+fi
+if [ "${#BLUE_ZONE_BROWSER_DEV_PORTS[@]}" -gt 0 ]; then
+  DEFAULT_BROWSER_DEV_PORTS="${BLUE_ZONE_BROWSER_DEV_PORTS[*]}"
+else
+  DEFAULT_BROWSER_DEV_PORTS=""
 fi
 
 # ── Step 2: copy pure tooling verbatim (always safe — materialized, not source) ─
@@ -221,11 +227,16 @@ ANS_EXTRA_DOMAINS="$(ask "Additional egress-allowed domains to append, e.g. api.
 # so it is a separate question, and the default is off.
 ANS_BROWSER="$(ask "Enable the Playwright browser for interactive sessions? (y/n)" "$DEFAULT_BROWSER")"
 ANS_BROWSER_ORIGINS=""
+ANS_BROWSER_DEV_PORTS=""
 case "$ANS_BROWSER" in
   [Yy]*)
-    echo    "    The browser can reach ONLY the origins you list here (scheme://host[:port])."
+    echo    "    If Claude will run a dev server (webpack/vite/…) inside the sandbox and"
+    echo    "    open it in the browser, give its port(s). This needs no egress at all."
+    ANS_BROWSER_DEV_PORTS="$(ask "  Dev server port(s) Claude runs in the sandbox" "$DEFAULT_BROWSER_DEV_PORTS")"
+    echo    "    Beyond that, the browser can reach ONLY the origins you list here"
+    echo    "    (scheme://host[:port]). Leave empty if the dev server is all you need."
     echo    "    Example: http://host.docker.internal:8081 https://staging.example.com"
-    ANS_BROWSER_ORIGINS="$(ask "  Browser-allowed origins" "$DEFAULT_BROWSER_ORIGINS")"
+    ANS_BROWSER_ORIGINS="$(ask "  Browser-allowed external origins" "$DEFAULT_BROWSER_ORIGINS")"
     ;;
 esac
 ANS_DESCRIPTION="$(ask "One-line project description for ai-scripts/CLAUDE.md" "a software project")"
@@ -237,6 +248,7 @@ ANS_EXTRA_EXCLUDES="${ANS_EXTRA_EXCLUDES//,/ }"
 ANS_EXTRA_DENYLIST="${ANS_EXTRA_DENYLIST//,/ }"
 ANS_EXTRA_DOMAINS="${ANS_EXTRA_DOMAINS//,/ }"
 ANS_BROWSER_ORIGINS="${ANS_BROWSER_ORIGINS//,/ }"
+ANS_BROWSER_DEV_PORTS="${ANS_BROWSER_DEV_PORTS//,/ }"
 
 # Pre-declared so a zero-field `read -ra` still leaves a defined (if empty)
 # array under `set -u` — on bash 3.2 (macOS /bin/bash) `read -ra arr <<< ""`
@@ -245,10 +257,12 @@ FOLDERS_ARR=()
 ROOT_FILES_ARR=()
 EXCLUDES_ARR=()
 BROWSER_ORIGINS_ARR=()
+BROWSER_DEV_PORTS_ARR=()
 read -ra FOLDERS_ARR <<< "$ANS_FOLDERS"
 read -ra ROOT_FILES_ARR <<< "$ANS_ROOT_FILES"
 read -ra EXCLUDES_ARR <<< "$DEFAULT_EXCLUDES $ANS_EXTRA_EXCLUDES"
 read -ra BROWSER_ORIGINS_ARR <<< "$ANS_BROWSER_ORIGINS"
+read -ra BROWSER_DEV_PORTS_ARR <<< "$ANS_BROWSER_DEV_PORTS"
 
 case "$ANS_BROWSER" in [Yy]*) BROWSER_ENABLED_VAL=1 ;; *) BROWSER_ENABLED_VAL=0 ;; esac
 # An origin reaching the host needs an explicit acknowledgement, in the config
@@ -280,6 +294,7 @@ FOLDERS_LINE="$(q_array BLUE_ZONE_FOLDERS ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"})
 ROOTFILES_LINE="$(q_array BLUE_ZONE_ROOT_FILES ${ROOT_FILES_ARR[@]+"${ROOT_FILES_ARR[@]}"})"
 EXCLUDES_LINE="$(q_array BLUE_ZONE_COMMON_EXCLUDES ${EXCLUDES_ARR[@]+"${EXCLUDES_ARR[@]}"})"
 BROWSER_ORIGINS_LINE="$(q_array BLUE_ZONE_BROWSER_ORIGINS ${BROWSER_ORIGINS_ARR[@]+"${BROWSER_ORIGINS_ARR[@]}"})"
+BROWSER_DEV_PORTS_LINE="$(q_array BLUE_ZONE_BROWSER_DEV_PORTS ${BROWSER_DEV_PORTS_ARR[@]+"${BROWSER_DEV_PORTS_ARR[@]}"})"
 BROWSER_ENABLED_LINE="BLUE_ZONE_BROWSER_ENABLED=\"\${BLUE_ZONE_BROWSER_ENABLED:-$BROWSER_ENABLED_VAL}\""
 BROWSER_HOSTGW_LINE="BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=\"\${BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY:-$BROWSER_HOSTGW_VAL}\""
 
@@ -320,7 +335,7 @@ for f in ${FOLDERS_ARR[@]+"${FOLDERS_ARR[@]}"}; do
   } >> "$STUB_ARMS_FILE"
 done
 
-awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms_file="$STUB_ARMS_FILE" -v browser_origins_line="$BROWSER_ORIGINS_LINE" -v browser_enabled_line="$BROWSER_ENABLED_LINE" -v browser_hostgw_line="$BROWSER_HOSTGW_LINE" '
+awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v excludes_line="$EXCLUDES_LINE" -v stub_arms_file="$STUB_ARMS_FILE" -v browser_origins_line="$BROWSER_ORIGINS_LINE" -v browser_dev_ports_line="$BROWSER_DEV_PORTS_LINE" -v browser_enabled_line="$BROWSER_ENABLED_LINE" -v browser_hostgw_line="$BROWSER_HOSTGW_LINE" '
   /^BLUE_ZONE_FOLDERS=/ { print folders_line; next }
   /^BLUE_ZONE_ROOT_FILES=/ { print rootfiles_line; next }
   /^BLUE_ZONE_BROWSER_ENABLED=/ { print browser_enabled_line; next }
@@ -331,6 +346,12 @@ awk -v folders_line="$FOLDERS_LINE" -v rootfiles_line="$ROOTFILES_LINE" -v exclu
     next
   }
   in_browser_origins { if ($0 ~ /^\)/) in_browser_origins = 0; next }
+  /^BLUE_ZONE_BROWSER_DEV_PORTS=\(/ {
+    print browser_dev_ports_line
+    if ($0 !~ /\)[[:space:]]*$/) in_browser_dev_ports = 1
+    next
+  }
+  in_browser_dev_ports { if ($0 ~ /^\)/) in_browser_dev_ports = 0; next }
   /^BLUE_ZONE_COMMON_EXCLUDES=\(/ {
     print excludes_line
     if ($0 !~ /\)[[:space:]]*$/) in_excludes = 1

@@ -215,8 +215,14 @@ no Anthropic credentials, and can reach only the origins you list:
 ```bash
 # blue-zone.config.sh
 BLUE_ZONE_BROWSER_ENABLED=1
-BLUE_ZONE_BROWSER_ORIGINS=(http://host.docker.internal:8081 https://staging.example.com)
-BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=1   # required for a host origin
+
+# A dev server Claude runs inside the sandbox — no egress needed at all, and
+# the tightest setup there is. Claude opens http://devserver:8080.
+BLUE_ZONE_BROWSER_DEV_PORTS=(8080)
+
+# Anything outside must be listed; a host origin needs an explicit ack.
+BLUE_ZONE_BROWSER_ORIGINS=(https://staging.example.com)
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=0
 ```
 
 `validate-blue-zone.sh` check 7 refuses an empty, malformed, wildcarded or

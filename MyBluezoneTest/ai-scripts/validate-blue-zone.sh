@@ -273,7 +273,15 @@ else
   VIOLATIONS=$((VIOLATIONS + BROWSER_VIOLATIONS))
   WARNINGS=$((WARNINGS + BROWSER_WARNINGS))
   if $BROWSER_OK; then
-    pass "Browser egress allowlist is explicit and narrow ($(blue_zone_browser_each | wc -l | tr -d ' ') origin(s))"
+    BROWSER_EXT=$(blue_zone_browser_each | wc -l | tr -d ' ')
+    if blue_zone_browser_dev_enabled; then
+      BROWSER_DEV=$(blue_zone_browser_dev_each | wc -l | tr -d ' ')
+      pass "Browser policy OK — $BROWSER_DEV in-sandbox dev server port(s), $BROWSER_EXT external origin(s)"
+      [ "$BROWSER_EXT" -eq 0 ] && \
+        pass "No external origins at all — browser traffic never leaves the Docker networks"
+    else
+      pass "Browser egress allowlist is explicit and narrow ($BROWSER_EXT origin(s))"
+    fi
   fi
 fi
 

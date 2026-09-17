@@ -75,6 +75,7 @@ export COMPOSE_FILE="docker-compose.ai-sandbox.yml:$BLUE_ZONE_COMPOSE_FILE"
 # repeat is deliberate, since BLUE_ZONE_BROWSER_* can be overridden per-run
 # from the environment after validation ran.
 CLAUDE_EXTRA_ARGS=()
+COMPOSE_RUN_ARGS=()
 if blue_zone_browser_enabled; then
   echo -e "\n${BOLD}Step 3: Checking browser egress policy...${RESET}"
   if ! blue_zone_browser_check; then
@@ -91,6 +92,10 @@ if blue_zone_browser_enabled; then
   CLAUDE_EXTRA_ARGS+=(--mcp-config /workspace/.mcp.json --strict-mcp-config)
   [ -n "$BLUE_ZONE_BROWSER_TOOLS" ] && \
     CLAUDE_EXTRA_ARGS+=(--allowedTools "$BLUE_ZONE_BROWSER_TOOLS")
+  # `docker compose run` ignores a service's network aliases unless told not to.
+  # Without this the dev-server alias generated into the overlay would simply
+  # not exist, and the browser could not resolve the name at all.
+  blue_zone_browser_dev_enabled && COMPOSE_RUN_ARGS+=(--use-aliases)
   echo -e "  ${GREEN}OK${RESET} egress policy accepted"
 fi
 
@@ -184,6 +189,7 @@ if blue_zone_browser_enabled; then
 fi
 
 docker compose run --rm \
+  ${COMPOSE_RUN_ARGS[@]+"${COMPOSE_RUN_ARGS[@]}"} \
   ${AUTH_ENV_ARGS[@]+"${AUTH_ENV_ARGS[@]}"} \
   claude-cli \
   ${CLAUDE_EXTRA_ARGS[@]+"${CLAUDE_EXTRA_ARGS[@]}"}

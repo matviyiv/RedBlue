@@ -9,6 +9,7 @@ set -euo pipefail
 
 BOLD="\033[1m"
 GREEN="\033[0;32m"
+YELLOW="\033[0;33m"
 RED="\033[0;31m"
 CYAN="\033[0;36m"
 RESET="\033[0m"
@@ -61,6 +62,17 @@ echo -e "${BOLD}[2/3] Validating blue zone...${RESET}"
 # Layer the generated per-folder mounts (docker-compose.blue-zone.yml, written
 # by prepare-blue-zone.sh) on top of the base compose file.
 export COMPOSE_FILE="docker-compose.ai-sandbox.yml:$BLUE_ZONE_COMPOSE_FILE"
+
+# The optional Playwright browser is INTERACTIVE-ONLY and is not wired up here.
+# The headless service runs with network_mode: none, and that is the point: an
+# unattended run with a browser is an unattended run that can put workspace
+# content into an HTTP request with nobody watching. Say so plainly rather than
+# letting a configured browser look like it is available.
+if [ "${BLUE_ZONE_BROWSER_ENABLED:-0}" = "1" ]; then
+  echo -e "${YELLOW}Note: the Playwright browser is enabled in blue-zone.config.sh but is${RESET}"
+  echo -e "${YELLOW}      not available in headless mode — this run has no network at all.${RESET}"
+  echo -e "${YELLOW}      Use ./ai-scripts/start-cli.sh for browser-backed work.${RESET}\n"
+fi
 
 # Ensure the node_modules cache volume is writable by the non-root user. A volume
 # created before the image pre-created /workspace/node_modules (or by an older

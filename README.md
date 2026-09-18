@@ -113,13 +113,19 @@ RedBlue/
 │   │   └── lib/                    # Shared internals (sourced, not run)
 │   │       ├── blue-zone-project.sh   #   the red-zone filter itself
 │   │       ├── blue-zone-git.sh       #   shadow git repo behind two-way sync
-│   │       └── blue-zone-manifest.sh  #   manifest + compose overlay writers
+│   │       ├── blue-zone-manifest.sh  #   manifest + compose overlay writers
+│   │       └── blue-zone-browser.sh   #   optional browser + its egress allowlist
 │   ├── blue-zone.config.sh         # Which folders are blue zone + exclusion rules
 │   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
+│   ├── ai-playwright/              # Optional browser, OUTSIDE the sandbox image
+│   │   └── Dockerfile              #   Playwright MCP + Chromium, non-root
 │   ├── ai-proxy/                   # Egress allowlist proxy (interactive sessions)
 │   │   ├── Dockerfile              #   tinyproxy on alpine
 │   │   ├── tinyproxy.conf          #   default-deny forward proxy
 │   │   └── filter                  #   allowlist: Anthropic + GitHub domains
+│   ├── .claude-blue-zone/          # Shared agents & skills (committed, mounted :ro)
+│   │   ├── agents/                 #   change-reviewer — post-task code review
+│   │   └── skills/                 #   team skills go here
 │   ├── Dockerfile.ai-sandbox       # node:26-alpine + Claude Code CLI, non-root user
 │   ├── docker-compose.ai-sandbox.yml  # Network isolation, resource caps
 │   └── .gitlab-ci.yml              # Full pipeline: build → validate → review
@@ -449,6 +455,115 @@ before running any script.
 
 ---
 
+---
+
+## Shared agents and skills (`.claude-blue-zone/`)
+
+Agents and skills are the difference between a session that knows how your team
+works and one that guesses. Keep them in `.claude-blue-zone/` — committed,
+reviewed in merge requests, and mounted read-only where Claude Code looks for
+them:
+
+```
+your-repo/.claude-blue-zone/agents/  ──ro──>  /workspace/.claude/agents
+your-repo/.claude-blue-zone/skills/  ──ro──>  /workspace/.claude/skills
+```
+
+It is deliberately **not** your project's own `.claude/` — the tooling still
+never touches that. This is the separate, curated set you are willing to hand to
+a sandboxed session, and it is read-only in the container, so a session cannot
+rewrite the agents that review it.
+
+Unlike the blue-zone folders it is mounted straight from the repo rather than
+filtered, because an agent definition put through a content filter would quietly
+break. That exception is paid for by `validate-blue-zone.sh` check 8, which
+scans the whole folder with the same secret patterns and denylist used
+everywhere else — across every file type, since agents are Markdown — and
+refuses to start the session on a hit.
+
+### The `change-reviewer` agent
+
+Ships in the folder and runs when a task is finished, before the session reports
+it done. It is read-only (`Read`, `Grep`, `Glob`) — it reports findings, the
+session fixes them. A reviewer with edit rights is exactly how a targeted change
+turns into a widespread one.
+
+| | What it looks for |
+|---|---|
+| **Scope** | Files the task never implied, drive-by refactors, reformatting, unrelated bugs fixed in passing — and the opposite, a task left half-done |
+| **Correctness** | Logic that doesn't match the task, unhandled errors, leaks, debug leftovers, hardcoded values |
+| **Consistency** | Existing helpers and types reused rather than reinvented; naming, structure and error handling matching the surrounding code |
+| **Tests** | A test that would fail without the change — and loudly, any existing test weakened, skipped or deleted to make something pass |
+
+`ai-scripts/CLAUDE.md` makes invoking it a rule, and tells Claude that a scope
+finding is usually answered by reverting that part rather than justifying it.
+The session must pass it the task and the changed-file list: there is no git in
+the workspace, so it cannot work those out for itself.
+
+Details and how to add your own:
+[`claude-docker/docs/shared-agents-skills.md`](claude-docker/docs/shared-agents-skills.md).
+
+---
+
+## Optional: a browser, outside the sandbox image
+
+Some work needs a real browser — loading the app, checking a rendered screen,
+reproducing a UI bug. A browser is also the one tool that can carry workspace
+content back out over HTTP, so it is off by default and, when on, lives in its
+own container with its own, much narrower allowlist.
+
+Most often you want Claude to run the dev server *in the blue zone* and open
+its own work — that needs no egress at all:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_BROWSER_ENABLED=1
+BLUE_ZONE_BROWSER_DEV_PORTS=(8080)     # webpack/vite, started by Claude
+BLUE_ZONE_BROWSER_ORIGINS=()           # nothing external
+```
+
+Claude starts the server bound to `0.0.0.0` and opens `http://devserver:8080`.
+Both containers are inside the sandbox, so that traffic never leaves the
+internal Docker networks and the proxy allowlist stays empty — the tightest
+configuration there is. (Claude must set `allowedHosts` to accept the
+`devserver` name; `ai-scripts/CLAUDE.md` tells it so.)
+
+To reach things outside instead, list them — a server on your machine needs an
+explicit acknowledgement:
+
+```bash
+BLUE_ZONE_BROWSER_ORIGINS=(
+  http://host.docker.internal:8081     # a dev server on YOUR machine
+  https://staging.example.com          # a staging deployment
+)
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=1   # required for a host origin
+```
+
+```
+claude-cli ──MCP over an internal network──> playwright-mcp ──> browser-proxy ──> allowlist
+   │                                         (no mounts,          (default-deny,
+   └──> egress-proxy ──> Anthropic            no token)            generated from config)
+```
+
+The Playwright MCP server is **not** installed into the sandbox image: it runs
+as a sibling container that mounts no part of the blue zone, holds no Anthropic
+credentials, and reaches the network only through a second allowlist proxy. The
+session talks to it over an `internal` Docker network, so Claude gains no
+network of its own from it — only the ability to make MCP tool calls.
+
+- Interactive sessions only. `run-headless.sh` keeps `network_mode: none` and
+  tells you the browser isn't available rather than pretending otherwise.
+- The proxy is the boundary — default-deny, exact-host. The same list is passed
+  to the MCP server as `--allowed-origins`, but upstream says that is explicitly
+  *not* a security boundary, so it is a convenience, not a second layer.
+- `validate-blue-zone.sh` refuses an empty, malformed, wildcarded or
+  LAN-pointing allowlist before any container starts.
+- Every browser action prompts you unless you pre-approve tools with
+  `BLUE_ZONE_BROWSER_TOOLS`.
+
+Full design, threat model and the list of things it deliberately does **not**
+protect against: [`claude-docker/docs/playwright-mcp.md`](claude-docker/docs/playwright-mcp.md).
+
 ## GitLab CI
 
 The included `.gitlab-ci.yml` runs three stages on every MR:
@@ -476,7 +591,13 @@ Required CI/CD variable (masked + protected): `CLAUDE_CODE_OAUTH_TOKEN`
 | Interactive session can't reach your LAN | `claude-cli` has no route off the `internal` network; the dual-homed `egress-proxy` denies every destination except the allowlisted public hosts in `ai-proxy/filter` (Anthropic, GitHub) |
 | Repo is never written directly | Writable mounts point at the per-project `/tmp/blue-zone/<project>` staging copy; config mounts stay `:ro` |
 | No root inside container | Non-root `claude` user in Dockerfile.ai-sandbox |
+| Shared agents can't be rewritten by the session | `.claude-blue-zone/` is mounted `:ro`; changes go through the repo and review |
+| Shared agents can't smuggle secrets in | `validate-blue-zone.sh` check 8 scans the folder with the same secret patterns and denylist, across every file type |
 | Memory bounded | `deploy.resources.limits.memory: 512m` |
+| Browser can't read the code | The optional `playwright-mcp` container mounts no blue-zone folder and gets no Anthropic token |
+| Browser can't reach anything unlisted | A second default-deny proxy on its own `internal` network, with an exact-host allowlist generated from `BLUE_ZONE_BROWSER_ORIGINS`. (`--allowed-origins` mirrors it but is not a security boundary upstream — the proxy is.) |
+| Browser never runs unattended | Interactive sessions only; headless/CI keeps `network_mode: none` |
+| A dev server Claude runs is reachable, your machine is not | `claude-cli` gets a `devserver` alias on the internal `browser` network; Chromium bypasses the proxy for that name only, and that traffic never leaves Docker |
 
 ---
 

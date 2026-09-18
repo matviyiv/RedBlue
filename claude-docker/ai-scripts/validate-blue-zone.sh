@@ -21,9 +21,16 @@ RESET="\033[0m"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../blue-zone.config.sh
 source "$SCRIPT_DIR/../blue-zone.config.sh"
+# Browser egress policy helpers (check 7). Sourcing is harmless when the
+# browser is off — every function short-circuits on BLUE_ZONE_BROWSER_ENABLED.
+# shellcheck source=lib/blue-zone-browser.sh
+source "$SCRIPT_DIR/lib/blue-zone-browser.sh"
 
 # Defensive default: an older config may not define BLUE_ZONE_ROOT_FILES.
 declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
+# …nor the shared agents/skills folder (check 8), added later.
+: "${BLUE_ZONE_CLAUDE_DIR:=}"
+declare -p BLUE_ZONE_CLAUDE_SUBDIRS >/dev/null 2>&1 || BLUE_ZONE_CLAUDE_SUBDIRS=()
 
 STRICT=false
 VIOLATIONS=0
@@ -241,6 +248,109 @@ if [ -n "$CONFLICT_HITS" ]; then
   done <<< "$CONFLICT_HITS"
 else
   pass "No files contain merge conflict markers"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check 7: Browser (Playwright MCP) egress policy
+#
+# Only meaningful when the optional browser is enabled. The blue zone controls
+# what Claude can SEE; this controls where a browser it drives can SEND it. An
+# allowlist that is empty, malformed, wildcarded, or quietly pointed at your
+# LAN is a leak waiting to happen, so every one of those is a violation and the
+# session refuses to start.
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[7] Browser (Playwright MCP) egress policy...${RESET}"
+
+if ! blue_zone_browser_enabled; then
+  pass "Browser disabled (BLUE_ZONE_BROWSER_ENABLED=0) — no browser egress to check"
+else
+  BROWSER_REPORT="$(blue_zone_browser_check 2>&1)" && BROWSER_OK=true || BROWSER_OK=false
+  [ -n "$BROWSER_REPORT" ] && printf '%s\n' "$BROWSER_REPORT"
+  # blue_zone_browser_check prints its own VIOLATION/WARNING lines; reflect
+  # them in this script's counters so the summary and exit code agree.
+  BROWSER_VIOLATIONS=$(printf '%s\n' "$BROWSER_REPORT" | grep -c 'VIOLATION' || true)
+  BROWSER_WARNINGS=$(printf '%s\n' "$BROWSER_REPORT" | grep -c 'WARNING' || true)
+  VIOLATIONS=$((VIOLATIONS + BROWSER_VIOLATIONS))
+  WARNINGS=$((WARNINGS + BROWSER_WARNINGS))
+  if $BROWSER_OK; then
+    BROWSER_EXT=$(blue_zone_browser_each | wc -l | tr -d ' ')
+    if blue_zone_browser_dev_enabled; then
+      BROWSER_DEV=$(blue_zone_browser_dev_each | wc -l | tr -d ' ')
+      pass "Browser policy OK — $BROWSER_DEV in-sandbox dev server port(s), $BROWSER_EXT external origin(s)"
+      [ "$BROWSER_EXT" -eq 0 ] && \
+        pass "No external origins at all — browser traffic never leaves the Docker networks"
+    else
+      pass "Browser egress allowlist is explicit and narrow ($BROWSER_EXT origin(s))"
+    fi
+  fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check 8: Shared agents/skills folder (.claude-blue-zone)
+#
+# This folder is mounted STRAIGHT FROM THE REPO, not staged — so unlike the
+# blue-zone folders, nothing is filtered out of it on the way in. Whatever is
+# committed here reaches the container verbatim, which makes it the one place
+# a secret could ride in unnoticed. Scan it with the same secret patterns and
+# content denylist used everywhere else, across every file type (agents and
+# skills are Markdown, which check 2 does not look at).
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[8] Shared agents/skills folder...${RESET}"
+
+if [ -z "${BLUE_ZONE_CLAUDE_DIR:-}" ]; then
+  pass "No shared agents/skills folder configured (BLUE_ZONE_CLAUDE_DIR is empty)"
+elif [ ! -d "$BLUE_ZONE_CLAUDE_DIR" ]; then
+  pass "No $BLUE_ZONE_CLAUDE_DIR/ in this project — nothing mounted at /workspace/.claude"
+else
+  SHARED_DIRS=()
+  for sub in ${BLUE_ZONE_CLAUDE_SUBDIRS[@]+"${BLUE_ZONE_CLAUDE_SUBDIRS[@]}"}; do
+    [ -d "$BLUE_ZONE_CLAUDE_DIR/$sub" ] && SHARED_DIRS+=("$BLUE_ZONE_CLAUDE_DIR/$sub")
+  done
+
+  if [ "${#SHARED_DIRS[@]}" -eq 0 ]; then
+    pass "$BLUE_ZONE_CLAUDE_DIR/ exists but has none of: ${BLUE_ZONE_CLAUDE_SUBDIRS[*]:-} — nothing mounted"
+  else
+    SHARED_BAD=0
+
+    # Secrets — every file type, since these are Markdown/YAML, not source.
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+      SHARED_MATCHES=$(grep -rniE -e "$pattern" "${SHARED_DIRS[@]}" 2>/dev/null \
+        | blue_zone_strip_allow_marked \
+        | cut -d: -f1,2 | sort -t: -k1,1 -k2,2n -u | tr '\n' ' ' | sed 's/ *$//' || true)
+      if [ -n "$SHARED_MATCHES" ]; then
+        fail "secret pattern '$pattern' in shared agents/skills: $SHARED_MATCHES"
+        SHARED_BAD=1
+      fi
+    done
+
+    # Content denylist — same strings, same allow-marker exemption.
+    SHARED_DENY="$(mktemp)"
+    blue_zone_denylist_strings > "$SHARED_DENY"
+    if [ -s "$SHARED_DENY" ]; then
+      SHARED_HITS=$(grep -rliaFf "$SHARED_DENY" "${SHARED_DIRS[@]}" 2>/dev/null || true)
+      while IFS= read -r hf; do
+        [ -n "$hf" ] || continue
+        UNMARKED="$(blue_zone_unmarked_denylist_hits "$SHARED_DENY" "$hf")"
+        [ -z "$UNMARKED" ] && continue
+        HIT_LINES="$(printf '%s\n' "$UNMARKED" | cut -d: -f1 | sort -nu | tr '\n' ',' | sed 's/,$//')"
+        fail "denylisted string in shared agents/skills: $hf (line(s): $HIT_LINES)"
+        SHARED_BAD=1
+      done <<< "$SHARED_HITS"
+    fi
+    rm -f "$SHARED_DENY"
+
+    # A `settings.json` here would be mounted nowhere (only the configured
+    # subdirectories are), but its presence means someone expected it to apply
+    # — say so rather than letting them believe permissions were widened.
+    if [ -f "$BLUE_ZONE_CLAUDE_DIR/settings.json" ]; then
+      warn "$BLUE_ZONE_CLAUDE_DIR/settings.json is never mounted — session permissions are set by whoever starts the session, not by the repo"
+    fi
+
+    if [ "$SHARED_BAD" -eq 0 ]; then
+      SHARED_N=$(find "${SHARED_DIRS[@]}" -type f 2>/dev/null | wc -l | tr -d ' ')
+      pass "Shared agents/skills are clean ($SHARED_N file(s) from ${SHARED_DIRS[*]})"
+    fi
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,10 +1,23 @@
 # Claude Code - Blue Zone Docker Setup
 
-Isolates Claude Code to a filtered blue zone only.
-Red zone files are either not mounted or stripped by rsync before mounting.
+An enclosed environment for running Claude Code — and the tools a session needs:
+package installs, tests, a dev server, an optional browser — against blue-zone
+files only. Red zone files are either not mounted or stripped by rsync before
+mounting, and the container's network is either absent (headless) or narrowed to
+an allowlist (interactive).
+
+Any task belongs in here: implementing, refactoring, testing, reviewing. What is
+constrained is what the session can see and reach, not what you ask it to do.
+
+📊 Diagrams:
+[docs/dev-setup-flow.md](docs/dev-setup-flow.md) — new-developer local setup;
+[docs/blue-zone-flow.md](docs/blue-zone-flow.md) — how files move from the repo,
+through staging and the container, and back.
 
 The blue zone mounts are **writable**: Claude can create and edit files inside
-`/workspace/src`, `/workspace/ios`, and `/workspace/android`. Writes go to the
+the configured folders (by default `/workspace/src`, `/workspace/ios`, and
+`/workspace/android` — see [Configuring blue-zone folders](#configuring-blue-zone-folders)).
+Writes go to the
 staging copy at `/tmp/blue-zone/` on the host, and `sync-back.sh` copies them
 into your repo **automatically when the session ends** (interactive and
 headless). Set `SYNC_BACK=0` to disable, or run it by hand:
@@ -23,7 +36,125 @@ Sync-back safety rules (enforced via a snapshot taken at prepare time):
   the blue zone at prepare time — red-zone paths are never in the snapshot, so
   they can never be deleted by sync-back.
 
+## Blue zone manifest
+
+`prepare-blue-zone.sh` writes a **`BLUE_ZONE_MANIFEST.md`** at the blue zone root
+and mounts it **read-only** into the container at `/workspace/BLUE_ZONE_MANIFEST.md`.
+It is a Claude-readable record of what was **stripped** — the files that exist on
+the host but are deliberately absent from the workspace (red zone) — together
+with the filename rules and content denylist that removed them.
+
+Its purpose is to give Claude the true shape of the project without leaking any
+red-zone *contents*: Claude can see that, say, `src/api/auth-api.ts` exists (so it
+codes against the contract in `src/types/` instead of recreating the file) while
+never being able to read it. Because it lives at the blue zone root — not inside a
+mounted folder — `sync-back.sh` never copies it back into the repo, and the
+read-only mount means Claude cannot alter it. Change the filename via
+`BLUE_ZONE_MANIFEST_FILE` in `blue-zone.config.sh`.
+
+## Configuring blue-zone folders
+
+Which top-level folders are staged into the blue zone — and what gets stripped
+out of each — is defined in one place: **`blue-zone.config.sh`**. Nothing else
+is hardcoded, so adapting this setup to a non-React-Native project is a one-file
+edit.
+
+```bash
+# blue-zone.config.sh
+
+# The only directories mounted into the container, each at /workspace/<folder>.
+# A folder that doesn't exist in the repo is skipped with a warning.
+BLUE_ZONE_FOLDERS=(src ios android)      # e.g. (cmd internal pkg) for a Go svc,
+                                         #      (app lib spec)     for Rails, …
+
+# Individual root-level files, staged and validated like the folders.
+BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json)
+
+# Stripped from every folder, whatever the project:
+BLUE_ZONE_COMMON_EXCLUDES=(".env*" "node_modules/")
+
+# Per-folder red-zone rules live in blue_zone_excludes_for() — add a `case`
+# arm when a new folder needs its own exclusions.
+```
+
+Edit `BLUE_ZONE_FOLDERS`, then run any of the scripts — `prepare-blue-zone.sh`
+stages exactly those folders, generates the matching docker-compose mounts
+(`docker-compose.blue-zone.yml`, layered on via `COMPOSE_FILE`), and
+`validate-blue-zone.sh` verifies every configured exclusion actually held. You
+do **not** touch `docker-compose.ai-sandbox.yml` or any script to add or remove a folder.
+
+### Adding individual files (`BLUE_ZONE_ROOT_FILES`)
+
+To expose a single file (e.g. `package.json`, `tsconfig.json`), list it in
+**`BLUE_ZONE_ROOT_FILES`** rather than bind-mounting it in `docker-compose.ai-sandbox.yml`.
+Unlike a raw mount, a file listed here goes through the **same pipeline as the
+folders**: it is staged into the blue zone, dropped if the content denylist finds
+a forbidden string, scanned for secrets by `validate-blue-zone.sh`, recorded in
+the snapshot, synced back on exit, and listed in the manifest. Each file is
+mounted at `/workspace/<path>` (writable, like folders).
+
+```bash
+BLUE_ZONE_ROOT_FILES=(package.json tsconfig.json babel.config.js)
+```
+
+- Paths are repo-relative; a file that doesn't exist is skipped with a warning.
+- `.env*` files are **refused** — secrets belong in the red zone, not here.
+- A listed file that contains a denylisted string is dropped and shows up in the
+  manifest as *not available*, exactly like a stripped folder file.
+
+The only files still bind-mounted directly in `docker-compose.ai-sandbox.yml` are
+`.env.example` (schema reference, value-less, validated separately) and
+`ai-scripts/CLAUDE.md` (Claude's guidance) — everything reviewable goes through
+`BLUE_ZONE_ROOT_FILES`.
+
+## Content denylist (insecure strings)
+
+Filename patterns can't catch a secret hiding *inside* an otherwise-innocuous
+file. For that, list forbidden strings — one per line — in
+**`blue-zone-insecure-strings.txt`**. During `prepare-blue-zone.sh`, any staged
+file whose content contains one of them is **dropped before the blue zone is
+mounted**, so it never reaches the container (and, being absent from the
+prepare-time snapshot, is never re-added by `sync-back.sh`).
+
+```text
+# blue-zone-insecure-strings.txt   (# comments and blank lines ignored)
+BEGIN RSA PRIVATE KEY
+api.internal.mycorp.com
+AKIA
+password=
+```
+
+- Matching is **case-insensitive** and **substring** (fixed string, not regex).
+- Applies to every file in every configured folder.
+- The shipped file is a commented template — it removes nothing until you add
+  entries. Point elsewhere with `BLUE_ZONE_DENYLIST_FILE=/path/to/list`.
+- `validate-blue-zone.sh` re-scans the staged zone and **fails** if any
+  denylisted string slipped through, so the guarantee is checked, not assumed.
+
+### Reviewed exceptions (`fine-for-claude`)
+
+Sometimes a match is intentional — a `password=` example in a comment, a fixture
+token, a documented sample. Rather than loosen the denylist for everyone, mark
+the specific line with the **allow marker** and it stays in the blue zone:
+
+```ts
+const sample = "password=hunter2"; // fine-for-claude
+const url    = "http://192.168.1.10:3000"; // fine-for-claude
+```
+
+A line carrying the marker is exempt from **both** the content denylist (its
+file is not dropped) **and** the hardcoded-secret scan (it is not flagged). The
+exemption is **per line** — an unmarked secret elsewhere in the same file is
+still removed/flagged, so the marker can't be used to wave a whole file through.
+
+- Configure the marker via `BLUE_ZONE_ALLOW_MARKER` in `blue-zone.config.sh`
+  (default `fine-for-claude`). Matching is case-insensitive substring.
+- Set `BLUE_ZONE_ALLOW_MARKER=""` to disable the mechanism entirely — nothing
+  is ever exempted.
+
 ## Blue Zone Contents
+
+With the default `BLUE_ZONE_FOLDERS=(src ios android)`:
 
 | Folder | What's included | What's excluded (red) |
 |--------|----------------|----------------------|
@@ -43,11 +174,67 @@ your-project/
 │   ├── validate-blue-zone.sh      <- Secret leak scanner
 │   ├── start-cli.sh               <- Interactive session (local dev)
 │   ├── run-headless.sh            <- Headless prompt runner
-│   └── sync-back.sh               <- Auto-syncs Claude's changes to the repo
+│   ├── sync-in.sh                 <- Merge your repo changes into a live session
+│   ├── sync-back.sh               <- Auto-syncs Claude's changes to the repo
+│   └── diagnose-egress.sh         <- Probe the egress proxy allowlist
+├── blue-zone.config.sh            <- Folder list + exclusion rules (edit this)
+├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
+├── ai-proxy/                      <- Egress allowlist proxy
+├── ai-playwright/                 <- Optional browser (Playwright MCP), own container
+├── .claude-blue-zone/             <- Shared agents & skills (committed, mounted :ro)
+│   ├── agents/                    <-   -> /workspace/.claude/agents
+│   └── skills/                    <-   -> /workspace/.claude/skills
 ├── Dockerfile.ai-sandbox
-├── docker-compose.ai-sandbox.yml
+├── docker-compose.ai-sandbox.yml  <- Base compose (no folder mounts hardcoded)
+├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
+├── docker-compose.browser.yml     <- Generated browser services (git-ignored)
 └── .gitlab-ci.yml
 ```
+
+## Shared agents and skills
+
+`.claude-blue-zone/` holds the Claude Code agents and skills every session
+should have. Commit it, review it, and it is mounted read-only at
+`/workspace/.claude/{agents,skills}` where Claude Code looks for them:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_CLAUDE_DIR=".claude-blue-zone"     # "" disables the mount
+BLUE_ZONE_CLAUDE_SUBDIRS=(agents skills)     # add commands/ if you share those
+```
+
+It is not your project's own `.claude/` — the tooling still never touches that.
+Because this folder is mounted unfiltered, `validate-blue-zone.sh` check 8 scans
+it for secrets and denylisted strings and refuses to start on a hit.
+
+The shipped `change-reviewer` agent runs when a task is finished and reviews the
+change for correctness, consistency, test coverage, and scope creep. It is
+read-only — it reports, the session fixes. See
+[`docs/shared-agents-skills.md`](docs/shared-agents-skills.md).
+
+## Browser (Playwright MCP) — optional, off by default
+
+An interactive session can be given a real browser. It runs in its own
+container — not in the sandbox image — mounts no part of the blue zone, holds
+no Anthropic credentials, and can reach only the origins you list:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_BROWSER_ENABLED=1
+
+# A dev server Claude runs inside the sandbox — no egress needed at all, and
+# the tightest setup there is. Claude opens http://devserver:8080.
+BLUE_ZONE_BROWSER_DEV_PORTS=(8080)
+
+# Anything outside must be listed; a host origin needs an explicit ack.
+BLUE_ZONE_BROWSER_ORIGINS=(https://staging.example.com)
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=0
+```
+
+`validate-blue-zone.sh` check 7 refuses an empty, malformed, wildcarded or
+LAN-pointing allowlist, and `start-cli.sh` re-checks it before starting
+anything. Headless/CI runs never get the browser. The design and its limits are
+documented in [`docs/playwright-mcp.md`](docs/playwright-mcp.md).
 
 ## Authentication
 
@@ -74,7 +261,41 @@ Past conversations can be resumed inside a new session with `claude
 To wipe it and start fresh:
 
 ```bash
-./ai-scripts/start-cli.sh --clear    # removes the claude-home volume
+./ai-scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
+```
+
+## Dependencies (node_modules cache)
+
+`node_modules` is **red-zone-excluded** from the blue zone (never copied from the
+host), but a persistent **`node-modules`** Docker volume is mounted at
+`/workspace/node_modules`, so installed packages **survive between runs**. The
+first `npm install` populates it; later runs are incremental. npm's download
+cache (`~/.npm`) persists too, inside the `claude-home` volume.
+
+The **interactive** container can reach the npm and yarn registries (added to the
+egress allowlist in `ai-proxy/filter`), so `npm install` / `yarn install` work there.
+The **headless** container has no network by design — it reuses whatever the
+persistent `node-modules` volume already holds, so run an install interactively
+once and headless/CI runs pick it up.
+
+The volume is made writable by the container's non-root `claude` user
+automatically: the image pre-creates `/workspace/node_modules` (owned by
+`claude`) so a fresh volume seeds correctly, and `start-cli.sh` / `run-headless.sh`
+chown it on startup so a volume left root-owned by an older image self-heals — no
+`EACCES` on `npm install`. (To reset instead: `docker compose down -v`.)
+
+Installs are memory-hungry (resolving a large React Native tree, worst case with
+no lockfile). The container memory limit is **4g** by default and Node's heap is
+raised to 3 GB (`NODE_OPTIONS=--max-old-space-size=3072` in the Dockerfile) so
+`yarn install` doesn't abort with *JavaScript heap out of memory* (exit 134).
+Tune the limit with `CLAUDE_MEMORY` (e.g. `CLAUDE_MEMORY=2g` or `8g`) — keep it
+at or above the Node heap size, or the process is OOM-killed by the cgroup.
+Committing a lockfile (add `package-lock.json` / `yarn.lock` to
+`BLUE_ZONE_ROOT_FILES`) makes installs lighter and deterministic.
+
+```bash
+docker compose down -v            # clears node_modules (and claude-home) volumes
+CLAUDE_MEMORY=8g ./ai-scripts/start-cli.sh   # more memory for a big install
 ```
 
 ## Quick Start
@@ -90,7 +311,8 @@ export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
 # ...or without one: just start it and log in with /login (persists)
 ./ai-scripts/start-cli.sh
 
-# Headless run
+# Headless run — any task, not just review
+./ai-scripts/run-headless.sh "Add a unit test for src/components/Button.tsx"
 ./ai-scripts/run-headless.sh "Review ios/ native modules for memory leaks"
 ./ai-scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
 

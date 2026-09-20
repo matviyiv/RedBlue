@@ -1,7 +1,13 @@
 # Claude Code - Blue Zone Docker Setup
 
-Isolates Claude Code to a filtered blue zone only.
-Red zone files are either not mounted or stripped by rsync before mounting.
+An enclosed environment for running Claude Code — and the tools a session needs:
+package installs, tests, a dev server, an optional browser — against blue-zone
+files only. Red zone files are either not mounted or stripped by rsync before
+mounting, and the container's network is either absent (headless) or narrowed to
+an allowlist (interactive).
+
+Any task belongs in here: implementing, refactoring, testing, reviewing. What is
+constrained is what the session can see and reach, not what you ask it to do.
 
 📊 Diagrams:
 [docs/dev-setup-flow.md](docs/dev-setup-flow.md) — new-developer local setup;
@@ -174,11 +180,61 @@ your-project/
 ├── blue-zone.config.sh            <- Folder list + exclusion rules (edit this)
 ├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
 ├── ai-proxy/                      <- Egress allowlist proxy
+├── ai-playwright/                 <- Optional browser (Playwright MCP), own container
+├── .claude-blue-zone/             <- Shared agents & skills (committed, mounted :ro)
+│   ├── agents/                    <-   -> /workspace/.claude/agents
+│   └── skills/                    <-   -> /workspace/.claude/skills
 ├── Dockerfile.ai-sandbox
 ├── docker-compose.ai-sandbox.yml  <- Base compose (no folder mounts hardcoded)
 ├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
+├── docker-compose.browser.yml     <- Generated browser services (git-ignored)
 └── .gitlab-ci.yml
 ```
+
+## Shared agents and skills
+
+`.claude-blue-zone/` holds the Claude Code agents and skills every session
+should have. Commit it, review it, and it is mounted read-only at
+`/workspace/.claude/{agents,skills}` where Claude Code looks for them:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_CLAUDE_DIR=".claude-blue-zone"     # "" disables the mount
+BLUE_ZONE_CLAUDE_SUBDIRS=(agents skills)     # add commands/ if you share those
+```
+
+It is not your project's own `.claude/` — the tooling still never touches that.
+Because this folder is mounted unfiltered, `validate-blue-zone.sh` check 8 scans
+it for secrets and denylisted strings and refuses to start on a hit.
+
+The shipped `change-reviewer` agent runs when a task is finished and reviews the
+change for correctness, consistency, test coverage, and scope creep. It is
+read-only — it reports, the session fixes. See
+[`docs/shared-agents-skills.md`](docs/shared-agents-skills.md).
+
+## Browser (Playwright MCP) — optional, off by default
+
+An interactive session can be given a real browser. It runs in its own
+container — not in the sandbox image — mounts no part of the blue zone, holds
+no Anthropic credentials, and can reach only the origins you list:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_BROWSER_ENABLED=1
+
+# A dev server Claude runs inside the sandbox — no egress needed at all, and
+# the tightest setup there is. Claude opens http://devserver:8080.
+BLUE_ZONE_BROWSER_DEV_PORTS=(8080)
+
+# Anything outside must be listed; a host origin needs an explicit ack.
+BLUE_ZONE_BROWSER_ORIGINS=(https://staging.example.com)
+BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=0
+```
+
+`validate-blue-zone.sh` check 7 refuses an empty, malformed, wildcarded or
+LAN-pointing allowlist, and `start-cli.sh` re-checks it before starting
+anything. Headless/CI runs never get the browser. The design and its limits are
+documented in [`docs/playwright-mcp.md`](docs/playwright-mcp.md).
 
 ## Authentication
 
@@ -255,7 +311,8 @@ export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
 # ...or without one: just start it and log in with /login (persists)
 ./ai-scripts/start-cli.sh
 
-# Headless run
+# Headless run — any task, not just review
+./ai-scripts/run-headless.sh "Add a unit test for src/components/Button.tsx"
 ./ai-scripts/run-headless.sh "Review ios/ native modules for memory leaks"
 ./ai-scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
 

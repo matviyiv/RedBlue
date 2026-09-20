@@ -1,7 +1,13 @@
 # Claude Code - Blue Zone Docker Setup
 
-Isolates Claude Code to a filtered blue zone only.
-Red zone files are either not mounted or stripped by rsync before mounting.
+An enclosed environment for running Claude Code — and the tools a session needs:
+package installs, tests, a dev server, an optional browser — against blue-zone
+files only. Red zone files are either not mounted or stripped by rsync before
+mounting, and the container's network is either absent (headless) or narrowed to
+an allowlist (interactive).
+
+Any task belongs in here: implementing, refactoring, testing, reviewing. What is
+constrained is what the session can see and reach, not what you ask it to do.
 
 📊 Diagrams:
 [docs/dev-setup-flow.md](docs/dev-setup-flow.md) — new-developer local setup;
@@ -305,7 +311,8 @@ export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...
 # ...or without one: just start it and log in with /login (persists)
 ./ai-scripts/start-cli.sh
 
-# Headless run
+# Headless run — any task, not just review
+./ai-scripts/run-headless.sh "Add a unit test for src/components/Button.tsx"
 ./ai-scripts/run-headless.sh "Review ios/ native modules for memory leaks"
 ./ai-scripts/run-headless.sh "Check android/ Kotlin bridge code" --output-format json
 

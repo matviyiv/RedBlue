@@ -1,14 +1,26 @@
-# RedBlue — Secure AI Code Review for React Native
+# RedBlue — A Secure, Enclosed Environment for Claude Code
 
-Run Claude Code inside a Docker container that can **only see what you allow**.
-No secrets. No signing keys. No internal endpoints. Just the code you want reviewed.
+Run Claude Code — and the tools a session needs: package installs, test runs, a
+dev server, even a browser — inside a Docker sandbox that can **only see the
+files you allow** and **only reach the hosts you allow**.
+No secrets. No signing keys. No internal endpoints. No route back onto your machine.
+
+Reviewing code is one thing you can do in there. So is implementing a feature,
+fixing a bug, refactoring, or getting the test suite green. The boundary is what
+the session can see and reach — not what you ask it to do.
+
+The worked example in this repository is a React Native app, because that is a
+project type with plenty to hide: signing certificates, keystores, Firebase
+config. None of the tooling is React Native specific. Which folders are blue zone
+and what gets stripped from them is one config file, so pointing it at a Go
+service or a Rails app is a one-file change.
 
 ---
 
 ## The Problem
 
-AI coding assistants are powerful, but feeding them your full repository means
-exposing things you probably don't want to share:
+AI coding assistants are powerful, but running one on your checkout means
+handing it everything in that checkout:
 
 - `.env` files with real API URLs and tokens
 - iOS signing certificates and provisioning profiles
@@ -16,8 +28,13 @@ exposing things you probably don't want to share:
 - Internal service endpoints, Jitsi servers, auth secrets
 - CI/CD configuration
 
-Most teams either avoid AI review entirely, or paste code manually and hope they
-didn't include anything sensitive. This project gives a third option.
+And once an agent can run commands and open connections, "it only looks at the
+code" stops being something you can assume. It has to be something the
+environment enforces.
+
+Most teams either keep AI out of the repository entirely, or paste snippets in
+by hand and hope nothing sensitive came along. This project gives a third
+option: a session that is enclosed rather than trusted.
 
 ---
 
@@ -57,6 +74,29 @@ You don't have to stop working while Claude does: `sync-in.sh` merges your lates
 repo changes into a live session, and `sync-back.sh` merges Claude's work back —
 neither direction overwrites the other. See
 [Working alongside Claude](#working-alongside-claude--two-way-sync).
+
+---
+
+## What the Session Can Actually Do
+
+The sandbox is a working environment, not a read-only viewer. Inside it Claude
+has a writable workspace, a package manager, a test runner, and — when you turn
+it on — a browser:
+
+| Capability | How it works |
+|---|---|
+| **Read and edit code** | Blue-zone folders are mounted **writable**; edits land in the staging copy and `sync-back.sh` merges them into your repo |
+| **Create and delete files** | Both sync back. A new file whose path collides with a stripped red-zone file is blocked, never written over the real one |
+| **Install dependencies** | The interactive session's egress allowlist covers the npm and yarn registries, and `node_modules` lives in a persistent Docker volume |
+| **Run tests, linters, builds** | Anything that runs from `/workspace` without host access — the workspace is a real checkout-shaped tree, just a filtered one |
+| **Run a dev server and look at it** | Optional Playwright MCP browser in its own container: Claude starts the server inside the sandbox and opens `http://devserver:8080`; that traffic never leaves Docker |
+| **Review its own work** | The shared `change-reviewer` agent runs before the session reports a task done |
+| **Headless / CI runs** | `run-headless.sh` takes a single prompt with `network_mode: none`. The shipped GitLab pipeline uses it for security and diff review |
+
+What it cannot do is the point: see a red-zone file, write into your repository
+directly, reach your LAN, or connect anywhere that isn't on the allowlist. Those
+limits are enforced by the mechanisms below — see
+[Security Properties](#security-properties) for the enforcement point of each.
 
 ---
 
@@ -382,7 +422,8 @@ export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # a) `claude setup-token` (Pro/Max
 # in the claude-home Docker volume. Wipe it to start fresh:
 ./ai-scripts/start-cli.sh --clear
 
-# Headless prompt (CI-friendly)
+# Headless prompt (CI-friendly) — any task, not just review
+./ai-scripts/run-headless.sh "Add a unit test for src/components/Button.tsx"
 ./ai-scripts/run-headless.sh "Review src/ for TypeScript errors and suggest fixes"
 ./ai-scripts/run-headless.sh "Check ios/ native modules for memory leaks" --output-format json
 ```
@@ -565,6 +606,10 @@ Full design, threat model and the list of things it deliberately does **not**
 protect against: [`claude-docker/docs/playwright-mcp.md`](claude-docker/docs/playwright-mcp.md).
 
 ## GitLab CI
+
+Review is the obvious thing to automate, so that is what the shipped pipeline
+does — but it is just one way to drive the same environment: every job below is
+`run-headless.sh` with a different prompt.
 
 The included `.gitlab-ci.yml` runs three stages on every MR:
 

@@ -501,13 +501,25 @@ BROWSERMD
 # Claude Code - Project Context
 
 ## Scope
-You are working on ${ANS_DESCRIPTION}.
+You are working on ${ANS_DESCRIPTION}, inside a sandboxed container that holds a
+filtered copy of the repository.
 Your working directory is \`/workspace\`. You have access to:
 ${FOLDER_BULLETS}
+This is a full working environment, not a read-only review seat: you implement,
+edit, test and run things here. What is constrained is what you can **see**
+(blue-zone files only) and what you can **reach** (no network at all in headless
+runs; a narrow allowlist in interactive ones) — not the kind of task you take on.
+
 ## What you CAN do
-- Read and analyze files inside the directories above
-- Suggest code improvements, bug fixes, and refactors
-- Write or update test files
+- Read, analyze, and **edit** files inside the directories above
+- Implement features, fix bugs, and refactor
+- Create new files and delete existing ones — both are carried back to the real repo
+- Write or update tests, and run them
+- Install dependencies when the session has network — interactive sessions reach
+  the npm and yarn registries; headless ones reuse the packages already in the
+  persistent \`node_modules\` volume
+- Run the project's dev server and other tooling from \`/workspace\`
+- Suggest improvements and review existing code
 - Reference \`/workspace/.env.example\` for environment variable **names only**
 
 ## What you MUST NOT do

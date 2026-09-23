@@ -422,6 +422,10 @@ export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat...  # a) `claude setup-token` (Pro/Max
 # in the claude-home Docker volume. Wipe it to start fresh:
 ./ai-scripts/start-cli.sh --clear
 
+# Update the Claude Code CLI (deletes the image, rebuilds with --no-cache
+# so `npm install -g @anthropic-ai/claude-code` actually re-runs):
+./ai-scripts/start-cli.sh --update
+
 # Headless prompt (CI-friendly) — any task, not just review
 ./ai-scripts/run-headless.sh "Add a unit test for src/components/Button.tsx"
 ./ai-scripts/run-headless.sh "Review src/ for TypeScript errors and suggest fixes"

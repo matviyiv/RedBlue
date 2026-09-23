@@ -264,6 +264,22 @@ To wipe it and start fresh:
 ./ai-scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
 ```
 
+## Updating the Claude Code CLI
+
+`Dockerfile.ai-sandbox` installs `@anthropic-ai/claude-code` with no version
+pin, so the image only has whatever was latest the last time it was built.
+Update it with:
+
+```bash
+./ai-scripts/start-cli.sh --update
+```
+
+This deletes the `claude-code:latest` image and rebuilds it with `--no-cache`,
+so the `npm install -g @anthropic-ai/claude-code` layer actually re-runs
+instead of reusing a stale cached layer. `claude-cli` and `claude-code` share
+the same image, so one rebuild updates both. Persisted state (`claude-home`,
+`node-modules` volumes) is untouched — only the image is replaced.
+
 ## Dependencies (node_modules cache)
 
 `node_modules` is **red-zone-excluded** from the blue zone (never copied from the

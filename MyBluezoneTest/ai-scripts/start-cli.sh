@@ -4,6 +4,8 @@
 # Usage: ./ai-scripts/start-cli.sh            start a session (state persists)
 #        ./ai-scripts/start-cli.sh --clear    wipe persisted Claude state
 #                                          (login, onboarding, session history)
+#        ./ai-scripts/start-cli.sh --update   update the Claude Code CLI
+#                                          (delete the image, rebuild from scratch)
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -34,6 +36,20 @@ if [ "${1:-}" = "--clear" ]; then
   echo -e "${BOLD}Clearing persisted Claude state (login, onboarding, sessions)...${RESET}"
   docker compose down --volumes --remove-orphans
   echo -e "${GREEN}Cleared. The next session will start fresh.${RESET}"
+  exit 0
+fi
+
+if [ "${1:-}" = "--update" ]; then
+  echo -e "${BOLD}Updating Claude Code CLI (delete image, rebuild from scratch)...${RESET}"
+  # No version is pinned in Dockerfile.ai-sandbox (`npm install -g
+  # @anthropic-ai/claude-code`), so the image only gets a newer CLI when the
+  # npm-install layer actually re-runs. Deleting the tag alone doesn't do
+  # that — the build cache lives separately from the image — so force it
+  # with --no-cache. claude-code and claude-cli share the same image
+  # (claude-code:latest), so rebuilding one updates both.
+  docker rmi -f claude-code:latest >/dev/null 2>&1 || true
+  docker compose -f docker-compose.ai-sandbox.yml build --no-cache --pull claude-code
+  echo -e "${GREEN}Updated. The next session will use the new image.${RESET}"
   exit 0
 fi
 

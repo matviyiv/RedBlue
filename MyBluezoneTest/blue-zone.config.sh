@@ -83,6 +83,32 @@ BLUE_ZONE_COMMON_EXCLUDES=(
   "node_modules/"
 )
 
+# ── Directories pruned outright, never walked or listed individually ────────
+# An exclusion above (or in blue_zone_excludes_for below) keeps a directory out
+# of the blue zone, but prepare-blue-zone.sh's manifest still walks the SOURCE
+# tree to report what was stripped — so a generated/vendored tree like
+# `Pods/`, `build/`, or `.cxx/` gets enumerated file-by-file (sometimes
+# thousands of entries) in BLUE_ZONE_MANIFEST.md, which is pure noise: nobody
+# needs to know that `android/app/build/intermediates/.../Foo.class` exists.
+#
+# A name listed here is treated the same way `node_modules` and `.git` always
+# have been: never descended into by the manifest's audit walk, and reported
+# as a single rolled-up line ("N file(s) not listed") instead of one bullet per
+# file. It does NOT affect what gets copied into the blue zone — that is still
+# controlled by BLUE_ZONE_COMMON_EXCLUDES / blue_zone_excludes_for; this only
+# controls how noisy the manifest is about directories that are excluded there
+# anyway. Add your project's generated/vendor directories here as they show up.
+BLUE_ZONE_PRUNE_DIRS=(
+  node_modules
+  .git
+  build
+  Pods
+  .cxx
+  .gradle
+  DerivedData
+  xcuserdata
+)
+
 # ── Per-folder exclusions ────────────────────────────────────────────────────
 # Echo one rsync --exclude pattern per line for the given folder name. Folders
 # with no special rules fall through the case and inherit only the common
@@ -431,6 +457,25 @@ blue_zone_all_patterns_for() {
     printf '%s\n' "$p"
   done
   blue_zone_excludes_for "$1"
+}
+
+# Build a `find` prune test — "( -name a -o -name b -o ... )" — from
+# BLUE_ZONE_PRUNE_DIRS into the named array, for use as:
+#   find . "${OUT[@]}" -prune -o -type f -print     # walk, skipping those dirs
+#   find . "${OUT[@]}" -prune -print                # list the pruned dirs themselves
+# (bash 3.2 compatible — writes into the caller's array via eval, no name-refs.)
+blue_zone_build_prune_test() {
+  local outname="$1" d first=1
+  eval "$outname=('(')"
+  for d in "${BLUE_ZONE_PRUNE_DIRS[@]}"; do
+    if [ "$first" -eq 1 ]; then
+      eval "$outname+=(-name \"\$d\")"
+      first=0
+    else
+      eval "$outname+=(-o -name \"\$d\")"
+    fi
+  done
+  eval "$outname+=(')')"
 }
 
 # Emit the active content-denylist strings (comments + blank lines stripped),

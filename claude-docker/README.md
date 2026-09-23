@@ -52,6 +52,36 @@ mounted folder — `sync-back.sh` never copies it back into the repo, and the
 read-only mount means Claude cannot alter it. Change the filename via
 `BLUE_ZONE_MANIFEST_FILE` in `blue-zone.config.sh`.
 
+### Keeping the manifest readable — `BLUE_ZONE_PRUNE_DIRS`
+
+An exclusion (`BLUE_ZONE_COMMON_EXCLUDES` / `blue_zone_excludes_for()`) keeps a
+directory out of the blue zone, but by default the manifest still *walks* the
+real source tree to report what it stripped — so a generated or vendored
+directory like `android/app/build/`, `ios/Pods/`, or `android/app/.cxx/` gets
+listed one bullet per file, sometimes thousands of them.
+
+**`BLUE_ZONE_PRUNE_DIRS`** in `blue-zone.config.sh` fixes this. Any directory
+*name* listed there is never walked by the manifest (same treatment
+`node_modules` and `.git` already got) and shows up as a single rolled-up line
+instead:
+
+```
+- `android/app/build/` — 812 file(s), not listed individually (generated/vendored — see `BLUE_ZONE_PRUNE_DIRS`)
+```
+
+The default already covers the common React Native/iOS/Android generated
+trees:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_PRUNE_DIRS=(node_modules .git build Pods .cxx .gradle DerivedData xcuserdata)
+```
+
+Add any other build-output or dependency-cache directory your project grows
+(e.g. `.next`, `dist`, `target`) to this list. It only changes how noisy the
+manifest is — it does **not** affect what gets copied into the blue zone; that
+is still controlled entirely by the exclusion rules above.
+
 ## Configuring blue-zone folders
 
 Which top-level folders are staged into the blue zone — and what gets stripped

@@ -41,6 +41,7 @@ source "$SCRIPT_DIR/../blue-zone.config.sh"
 # the config it's paired with.
 BLUE_ZONE_MANIFEST_FILE="${BLUE_ZONE_MANIFEST_FILE:-BLUE_ZONE_MANIFEST.md}"
 declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
+declare -p BLUE_ZONE_PRUNE_DIRS >/dev/null 2>&1 || BLUE_ZONE_PRUNE_DIRS=(node_modules .git)
 
 # The red-zone filter itself (shared with sync-in.sh) and the shadow git repo
 # that makes two-way sync possible.

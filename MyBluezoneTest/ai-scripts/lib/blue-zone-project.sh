@@ -56,14 +56,17 @@ blue_zone_sync_folder() {
   # refreshed content live.
   rsync -a --delete "$SRC/" "$DEST/" "${EXTRA_ARGS[@]}"
 
-  # Audit: show what was excluded. node_modules and .git are pruned outright
-  # (never descended into, not just filtered from the output) — they can hold
-  # tens of thousands of files that are always excluded anyway, so walking and
-  # printing them here would be pure noise and wasted work.
-  local EXCLUDED INCLUDED
+  # Audit: show what was excluded. Directories in BLUE_ZONE_PRUNE_DIRS (always
+  # node_modules and .git, plus any generated/vendor trees like build/ or
+  # Pods/ the project adds) are pruned outright — never descended into, not
+  # just filtered from the output — since they can hold tens of thousands of
+  # files that are always excluded anyway, so walking and printing them here
+  # would be pure noise and wasted work.
+  local EXCLUDED INCLUDED PRUNE_TEST
+  blue_zone_build_prune_test PRUNE_TEST
   EXCLUDED=$(comm -23 \
-    <(find "$SRC"  \( -name node_modules -o -name .git \) -prune -o -type f -print | sed "s|$SRC/||"  | sort) \
-    <(find "$DEST" \( -name node_modules -o -name .git \) -prune -o -type f -print | sed "s|$DEST/||" | sort) \
+    <(find "$SRC"  "${PRUNE_TEST[@]}" -prune -o -type f -print | sed "s|$SRC/||"  | sort) \
+    <(find "$DEST" "${PRUNE_TEST[@]}" -prune -o -type f -print | sed "s|$DEST/||" | sort) \
   )
 
   if [ -n "$EXCLUDED" ]; then
@@ -73,7 +76,7 @@ blue_zone_sync_folder() {
     done
   fi
 
-  INCLUDED=$(find "$DEST" \( -name node_modules -o -name .git \) -prune -o -type f -print | sed "s|$DEST/||" | wc -l | tr -d ' ')
+  INCLUDED=$(find "$DEST" "${PRUNE_TEST[@]}" -prune -o -type f -print | sed "s|$DEST/||" | wc -l | tr -d ' ')
   echo -e "  ${GREEN}✓ $INCLUDED file(s) in blue zone${RESET}\n"
 }
 

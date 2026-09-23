@@ -41,6 +41,7 @@ blue_zone_write_manifest() {
   local STRIPPED_TMP MANIFEST_DENY_FILE MANIFEST_TMP
   local STRIPPED_TOTAL=0
   local folder rf p f PER SRC_LIST STAGED_LIST BLUE_N RED_N SHOWN_LIST HIDDEN_N DN REDACTED
+  local d n PRUNE_N PRUNED_N
   STRIPPED_TMP="$(mktemp -d)"
 
   # Active content-denylist strings (the "insecure words"). The manifest is
@@ -83,18 +84,40 @@ blue_zone_write_manifest() {
     fi
     # Source files (minus heavy/irrelevant trees) vs what actually got staged.
     # The difference is everything the filename excludes AND the content
-    # denylist kept out. node_modules and .git are pruned outright — not just
-    # filtered from the output — so they are never walked at any depth, no
-    # matter how large, and never appear in the manifest shown to Claude.
-    SRC_LIST="$( (cd "./$folder" && find . \( -name node_modules -o -name .git \) -prune -o -type f -print 2>/dev/null) \
+    # denylist kept out. Directories in BLUE_ZONE_PRUNE_DIRS (node_modules,
+    # .git, and any generated/vendor trees the project adds — build/, Pods/,
+    # .cxx/, …) are pruned outright — not just filtered from the output — so
+    # they are never walked at any depth, no matter how large, and never
+    # appear file-by-file in the manifest shown to Claude. They are still
+    # reported, just as one rolled-up line per directory instead of one bullet
+    # per file (see the pruned-directories pass below).
+    blue_zone_build_prune_test PRUNE_TEST
+    SRC_LIST="$( (cd "./$folder" && find . "${PRUNE_TEST[@]}" -prune -o -type f -print 2>/dev/null) \
         | sed 's|^\./||' | sort )"
     STAGED_LIST="$( (cd "$BLUE_ZONE_ROOT/$folder" && find . -type f 2>/dev/null) \
         | sed 's|^\./||' | sort )"
     comm -23 <(printf '%s\n' "$SRC_LIST") <(printf '%s\n' "$STAGED_LIST") \
         | grep -v '^$' > "$STRIPPED_TMP/$folder" || true
 
+    # Roll up the pruned directories themselves (node_modules and .git are
+    # always expected and not worth calling out; anything else — build/,
+    # Pods/, .cxx/, … — is recorded as a single "exists, N file(s), not
+    # listed" line so Claude still knows it's there without the per-file
+    # noise). find with -prune and no -o branch prints exactly the matched
+    # directories, not their contents.
+    : > "$STRIPPED_TMP/$folder.pruned"
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      case "${d##*/}" in
+        node_modules|.git) continue ;;
+      esac
+      PRUNE_N=$(find "./$folder/$d" -type f 2>/dev/null | wc -l | tr -d ' ')
+      printf '%s\t%s\n' "$d" "$PRUNE_N" >> "$STRIPPED_TMP/$folder.pruned"
+    done < <(cd "./$folder" && find . "${PRUNE_TEST[@]}" -prune -print 2>/dev/null | sed 's|^\./||')
+
     BLUE_N=$(printf '%s\n' "$STAGED_LIST" | grep -c . || true)
-    RED_N=$(grep -c . "$STRIPPED_TMP/$folder" || true)
+    PRUNED_N=$(awk -F'\t' '{s+=$2} END{print s+0}' "$STRIPPED_TMP/$folder.pruned")
+    RED_N=$(( $(grep -c . "$STRIPPED_TMP/$folder" || true) + PRUNED_N ))
     STRIPPED_TOTAL=$((STRIPPED_TOTAL + RED_N))
     echo "| \`$folder\` | $BLUE_N | $RED_N |" >> "$MANIFEST_TMP"
   done
@@ -109,27 +132,37 @@ blue_zone_write_manifest() {
       echo
       echo "### $folder"
       echo
-      if [ ! -s "$STRIPPED_TMP/$folder" ]; then
+      if [ ! -s "$STRIPPED_TMP/$folder" ] && [ ! -s "$STRIPPED_TMP/$folder.pruned" ]; then
         echo "_Nothing stripped from this folder._"
       else
+        # Pruned directories first, one rolled-up line each (name + file count)
+        # instead of one bullet per file inside them — see BLUE_ZONE_PRUNE_DIRS.
+        if [ -s "$STRIPPED_TMP/$folder.pruned" ]; then
+          while IFS="$(printf '\t')" read -r d n; do
+            [ -n "$d" ] || continue
+            echo "- \`$folder/$d/\` — $n file(s), not listed individually (generated/vendored — see \`BLUE_ZONE_PRUNE_DIRS\`)"
+          done < "$STRIPPED_TMP/$folder.pruned"
+        fi
         # Omit any stripped path whose name contains a denylisted (insecure)
         # word, so the manifest never surfaces one. Matching mirrors the content
         # denylist: case-insensitive, fixed-string (substring).
-        SHOWN_LIST="$STRIPPED_TMP/$folder"
-        HIDDEN_N=0
-        if [ -s "$MANIFEST_DENY_FILE" ]; then
-          grep -viFf "$MANIFEST_DENY_FILE" "$STRIPPED_TMP/$folder" \
-            > "$STRIPPED_TMP/$folder.shown" || true
-          HIDDEN_N=$(( $(grep -c . "$STRIPPED_TMP/$folder" || true) \
-                     - $(grep -c . "$STRIPPED_TMP/$folder.shown" || true) ))
-          SHOWN_LIST="$STRIPPED_TMP/$folder.shown"
-        fi
-        while IFS= read -r f; do
-          [ -n "$f" ] || continue
-          echo "- \`$folder/$f\`"
-        done < "$SHOWN_LIST"
-        if [ "$HIDDEN_N" -gt 0 ]; then
-          echo "- _$HIDDEN_N file(s) omitted — name contains a denylisted string._"
+        if [ -s "$STRIPPED_TMP/$folder" ]; then
+          SHOWN_LIST="$STRIPPED_TMP/$folder"
+          HIDDEN_N=0
+          if [ -s "$MANIFEST_DENY_FILE" ]; then
+            grep -viFf "$MANIFEST_DENY_FILE" "$STRIPPED_TMP/$folder" \
+              > "$STRIPPED_TMP/$folder.shown" || true
+            HIDDEN_N=$(( $(grep -c . "$STRIPPED_TMP/$folder" || true) \
+                       - $(grep -c . "$STRIPPED_TMP/$folder.shown" || true) ))
+            SHOWN_LIST="$STRIPPED_TMP/$folder.shown"
+          fi
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            echo "- \`$folder/$f\`"
+          done < "$SHOWN_LIST"
+          if [ "$HIDDEN_N" -gt 0 ]; then
+            echo "- _$HIDDEN_N file(s) omitted — name contains a denylisted string._"
+          fi
         fi
       fi
     done
@@ -152,6 +185,17 @@ blue_zone_write_manifest() {
     echo
     echo "Files are removed by the red-zone filename rules below or because their"
     echo "contents matched a forbidden string. Source of truth: \`blue-zone.config.sh\`."
+    echo
+    echo "### Directories rolled up instead of listed file-by-file"
+    echo
+    echo "A directory named below is generated or vendored — excluded from the blue"
+    echo "zone by the filename rules further down like anything else, but never walked"
+    echo "here, so it shows up above as one line (with a file count) instead of one"
+    echo "bullet per file inside it:"
+    echo
+    for p in "${BLUE_ZONE_PRUNE_DIRS[@]}"; do
+      echo "- \`$p\`"
+    done
     echo
     echo "### Filename rules — every folder"
     echo

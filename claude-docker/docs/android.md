@@ -165,8 +165,10 @@ Verified in a Linux x86_64 container:
   `app-debug.apk` with the template's `debug.keystore` deleted and the Google
   Services plugin applied with no `google-services.json`. The APK holds
   `lib/arm64-v8a/` only and is signed with the throwaway debug key;
-- on a cold Gradle cache, every download goes through tinyproxy with the
-  generated allowlist, configured by `gradle.properties` alone;
+- the successful build used a cache warmed by earlier runs through the same
+  proxy. A cold-cache build routed every download through tinyproxy with
+  `gradle.properties` alone and had zero refusals, but Maven Central kept
+  answering 429 to the test machine's shared IP, so that run didn't finish;
 - with `JAVA_TOOL_OPTIONS` set (even to an empty value) the same build fails
   with `[CXX1210] No compatible library found`, which is why the proxy isn't
   passed that way;

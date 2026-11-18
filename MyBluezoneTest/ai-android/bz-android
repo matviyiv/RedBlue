@@ -142,12 +142,25 @@ cmd_prepare() {
   fi
 }
 
+# JAVA_TOOL_OPTIONS, when set at all (even empty), makes every JVM print
+# "Picked up JAVA_TOOL_OPTIONS" on stderr, and the Android Gradle plugin reads
+# that from the prefab tool as a failure: React Native's native build dies with
+# "[CXX1210] No compatible library found". Gradle's proxy comes from
+# $GRADLE_USER_HOME/gradle.properties instead, so nothing is lost.
+clear_java_tool_options() {
+  if [ -n "${JAVA_TOOL_OPTIONS+set}" ]; then
+    warn "unsetting JAVA_TOOL_OPTIONS for this build (it breaks React Native's native build)"
+    unset JAVA_TOOL_OPTIONS
+  fi
+}
+
 # ── build ────────────────────────────────────────────────────────────────────
 cmd_build() {
   local root
   root="$(project_dir "${1:-}")"
   cmd_prepare "$root"
   [ -d "$root/node_modules/react-native" ] || die "node_modules is not installed — run yarn/npm install in $root first."
+  clear_java_tool_options
   say "assembleDebug (ABIs: ${ORG_GRADLE_PROJECT_reactNativeArchitectures:-all})"
   (cd "$root/android" && ./gradlew assembleDebug --console=plain)
   say "APK(s):"
@@ -173,6 +186,7 @@ cmd_run() {
     for _ in $(seq 1 60); do metro_running && break; sleep 1; done
     metro_running || die "Metro did not start — see /tmp/metro.log"
   fi
+  clear_java_tool_options
   say "building, installing and launching on $ADB_TARGET ..."
   (cd "$root" && ANDROID_SERIAL="$ADB_TARGET" npx react-native run-android \
       --no-packager --active-arch-only --port "$METRO_PORT")

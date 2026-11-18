@@ -102,8 +102,13 @@ services.gradle.org  downloads.gradle.org  plugins.gradle.org
 plugins-artifacts.gradle.org  repo.reactnative.dev  oss.sonatype.org
 ```
 
-Gradle ignores `HTTPS_PROXY`, so the overlay sets `JAVA_TOOL_OPTIONS` with the
-proxy for every JVM (Gradle, its daemon, sdkmanager). If your project uses
+Gradle ignores `HTTPS_PROXY`, so the proxy (and the Gradle heap) go into a
+generated `gradle.properties` mounted read-only at
+`$GRADLE_USER_HOME/gradle.properties`, which the wrapper, client and daemon all
+read. Don't use `JAVA_TOOL_OPTIONS` for it: when that variable is set at all,
+React Native's native build fails with `[CXX1210] No compatible library found`
+(the JVM's "Picked up JAVA_TOOL_OPTIONS" line on the prefab tool's stderr). If
+anything exports it, `bz-android build`/`run` unset it before calling Gradle. If your project uses
 another repository (JitPack, a vendor's Maven), add its hostname to the list.
 A private registry with credentials is a red-zone decision, so don't add it
 casually.
@@ -148,16 +153,23 @@ install it yourself.
 | `403 Filtered` / `Received status code 403 from server: Filtered` in Gradle | A repository host isn't on `BLUE_ZONE_ANDROID_EGRESS_HOSTS`. |
 | `429 Too Many Requests` from Maven Central | Rate limiting on the network you're on. Retry; the `gradle-cache` volume keeps what was fetched. |
 | Gradle killed / exit 137 | Raise Docker Desktop's VM memory and `BLUE_ZONE_ANDROID_MEMORY`. |
+| `[CXX1210] No compatible library found` | `JAVA_TOOL_OPTIONS` is set (even empty) and Gradle was run directly, not via `bz-android`. `unset JAVA_TOOL_OPTIONS` and rebuild. |
 | Very slow first build | Expected: cold cache plus Rosetta. Later builds are incremental. |
 
 ## Status of this feature
 
-Verified in a Linux x86_64 container (see the PR for the run log):
+Verified in a Linux x86_64 container:
 
-- the image builds;
-- `bz-android build` on a fresh React Native 0.76.5 app produces a debug APK
-  through tinyproxy using the generated allowlist, with the keystore and
-  `google-services.json` stripped;
+- the image builds (about 5 minutes; 2.6 GB compressed, 9.4 GB on disk);
+- `bz-android build` on a fresh React Native 0.76.5 app produces
+  `app-debug.apk` with the template's `debug.keystore` deleted and the Google
+  Services plugin applied with no `google-services.json`. The APK holds
+  `lib/arm64-v8a/` only and is signed with the throwaway debug key;
+- on a cold Gradle cache, every download goes through tinyproxy with the
+  generated allowlist, configured by `gradle.properties` alone;
+- with `JAVA_TOOL_OPTIONS` set (even to an empty value) the same build fails
+  with `[CXX1210] No compatible library found`, which is why the proxy isn't
+  passed that way;
 - the compose overlay merges as intended;
 - `adb-relay` forwards one port, and a client on the internal network can't
   reach the console port or the host.

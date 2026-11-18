@@ -109,8 +109,8 @@ WORKDIR /workspace
 RUN chown claude:claude /workspace \
  && mkdir -p /workspace/node_modules && chown claude:claude /workspace/node_modules
 
-# Same heap as the base image for yarn/npm. Gradle's own heap is set per run by
-# the overlay (GRADLE_OPTS / ORG_GRADLE_PROJECT_*), not here.
+# Same heap as the base image for yarn/npm. Gradle's own heap comes from
+# the generated gradle.properties (see lib/blue-zone-android.sh), not here.
 ENV NODE_OPTIONS="--max-old-space-size=3072"
 
 USER claude

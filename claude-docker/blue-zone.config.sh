@@ -331,6 +331,56 @@ BLUE_ZONE_BROWSER_MCP_TRANSPORT="${BLUE_ZONE_BROWSER_MCP_TRANSPORT:-sse}"
 # Claude container, so this is separate from CLAUDE_MEMORY).
 BLUE_ZONE_BROWSER_MEMORY="${BLUE_ZONE_BROWSER_MEMORY:-2g}"
 
+# ── Android build + emulator — OFF by default ────────────────────────────────
+# Interactive session only. When on, start-cli.sh:
+#   • runs claude-cli from Dockerfile.ai-sandbox-android (JDK 17, Android SDK,
+#     NDK, adb; linux/amd64 — Rosetta on Apple Silicon),
+#   • adds BLUE_ZONE_ANDROID_EGRESS_HOSTS to the session allowlist for that run,
+#   • starts adb-relay, the single TCP path to the emulator's adb port on your
+#     machine (host.docker.internal:BLUE_ZONE_ANDROID_ADB_PORT).
+# The emulator itself runs on your Mac: ./ai-scripts/android-emulator.sh start.
+# The headless / CI service never gets any of this. See docs/android.md —
+# including the residual risk (the emulator has your Mac's network).
+#
+# Turn it on here (or export BLUE_ZONE_ANDROID_ENABLED=1 for one session).
+BLUE_ZONE_ANDROID_ENABLED="${BLUE_ZONE_ANDROID_ENABLED:-0}"
+
+# The emulator's ADB port on the host: console port + 1. The first emulator
+# uses console 5554 / adb 5555. Even (console) ports are refused.
+BLUE_ZONE_ANDROID_ADB_PORT="${BLUE_ZONE_ANDROID_ADB_PORT:-5555}"
+
+# AVD used by android-emulator.sh. Keep it dedicated to the sandbox: no Google
+# account, no personal data — the session gets `adb shell` on it.
+BLUE_ZONE_ANDROID_AVD="${BLUE_ZONE_ANDROID_AVD:-bluezone}"
+BLUE_ZONE_ANDROID_SYSTEM_IMAGE="${BLUE_ZONE_ANDROID_SYSTEM_IMAGE:-system-images;android-35;google_apis;arm64-v8a}"
+
+# ABIs compiled by Gradle (reactNativeArchitectures). arm64-v8a matches the
+# Apple Silicon emulator; building all four roughly quadruples native build time.
+BLUE_ZONE_ANDROID_ABIS="${BLUE_ZONE_ANDROID_ABIS:-arm64-v8a}"
+
+# Container memory with Android on (Gradle + Metro + Node). Docker Desktop's VM
+# must have at least this much: Settings → Resources → Memory.
+BLUE_ZONE_ANDROID_MEMORY="${BLUE_ZONE_ANDROID_MEMORY:-10g}"
+BLUE_ZONE_ANDROID_GRADLE_HEAP="${BLUE_ZONE_ANDROID_GRADLE_HEAP:-4g}"
+
+# Hosts Gradle needs, added to the session's egress allowlist ONLY while Android
+# is on (exact match, no subdomains). Add your project's extra repositories here
+# (e.g. jitpack.io) — plain hostnames only.
+BLUE_ZONE_ANDROID_EGRESS_HOSTS=(
+  dl.google.com                 # Google Maven + Android SDK packages
+  maven.google.com              # redirects to dl.google.com
+  repo.maven.apache.org         # Maven Central
+  services.gradle.org           # Gradle wrapper distributions
+  downloads.gradle.org          # (redirect target)
+  plugins.gradle.org            # Gradle plugin portal
+  plugins-artifacts.gradle.org  # (redirect target)
+  repo.reactnative.dev          # Maven Central redirects react-android / hermes-android .aar here
+  oss.sonatype.org              # snapshot repo React Native adds; Gradle treats
+                                # a proxy refusal there as a hard build failure
+)
+# (The Gradle wrapper itself downloads from GitHub release assets, which the
+# base ai-proxy/filter already allows.)
+
 # ── Derived helpers (do not usually need editing) ────────────────────────────
 
 # Project name used to namespace the staging root, so several projects can each

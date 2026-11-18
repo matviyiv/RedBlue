@@ -25,6 +25,9 @@ source "$SCRIPT_DIR/../blue-zone.config.sh"
 # browser is off — every function short-circuits on BLUE_ZONE_BROWSER_ENABLED.
 # shellcheck source=lib/blue-zone-browser.sh
 source "$SCRIPT_DIR/lib/blue-zone-browser.sh"
+# Android settings helpers (check 7b) — same deal, off unless enabled.
+# shellcheck source=lib/blue-zone-android.sh
+source "$SCRIPT_DIR/lib/blue-zone-android.sh"
 
 # Defensive default: an older config may not define BLUE_ZONE_ROOT_FILES.
 declare -p BLUE_ZONE_ROOT_FILES >/dev/null 2>&1 || BLUE_ZONE_ROOT_FILES=()
@@ -282,6 +285,28 @@ else
     else
       pass "Browser egress allowlist is explicit and narrow ($BROWSER_EXT origin(s))"
     fi
+  fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Check 7b: Android build + emulator settings
+#
+# Only meaningful when BLUE_ZONE_ANDROID_ENABLED=1. The extra egress hosts must
+# be plain public hostnames (they become exact-match proxy filter lines), and
+# the relay port must be an emulator ADB port — never a console port.
+# ─────────────────────────────────────────────────────────────────────────────
+echo -e "\n${BOLD}[7b] Android build + emulator settings...${RESET}"
+
+if ! blue_zone_android_enabled; then
+  pass "Android disabled (BLUE_ZONE_ANDROID_ENABLED=0) — no emulator route, no extra egress"
+else
+  ANDROID_REPORT="$(blue_zone_android_check 2>&1)" && ANDROID_OK=true || ANDROID_OK=false
+  [ -n "$ANDROID_REPORT" ] && printf '%s\n' "$ANDROID_REPORT"
+  ANDROID_VIOLATIONS=$(printf '%s\n' "$ANDROID_REPORT" | grep -c 'VIOLATION' || true)
+  VIOLATIONS=$((VIOLATIONS + ANDROID_VIOLATIONS))
+  if $ANDROID_OK; then
+    pass "Android settings OK — adb relay to host port $BLUE_ZONE_ANDROID_ADB_PORT, ${#BLUE_ZONE_ANDROID_EGRESS_HOSTS[@]} extra egress host(s)"
+    warn "Android on: the emulator has the host's network and the session has adb shell on it (see docs/android.md)"
   fi
 fi
 

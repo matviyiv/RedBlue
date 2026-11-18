@@ -90,6 +90,7 @@ it on — a browser:
 | **Install dependencies** | The interactive session's egress allowlist covers the npm and yarn registries, and `node_modules` lives in a persistent Docker volume |
 | **Run tests, linters, builds** | Anything that runs from `/workspace` without host access — the workspace is a real checkout-shaped tree, just a filtered one |
 | **Run a dev server and look at it** | Optional Playwright MCP browser in its own container: Claude starts the server inside the sandbox and opens `http://devserver:8080`; that traffic never leaves Docker |
+| **Build and run the Android app** | Optional: the session builds the debug APK in an Android-toolchain image and installs it on an emulator on your Mac, reached through a one-port adb relay ([details](claude-docker/docs/android.md)) |
 | **Review its own work** | The shared `change-reviewer` agent runs before the session reports a task done |
 | **Headless / CI runs** | `run-headless.sh` takes a single prompt with `network_mode: none`. The shipped GitLab pipeline uses it for security and diff review |
 
@@ -154,9 +155,12 @@ RedBlue/
 │   │       ├── blue-zone-project.sh   #   the red-zone filter itself
 │   │       ├── blue-zone-git.sh       #   shadow git repo behind two-way sync
 │   │       ├── blue-zone-manifest.sh  #   manifest + compose overlay writers
-│   │       └── blue-zone-browser.sh   #   optional browser + its egress allowlist
+│   │       ├── blue-zone-browser.sh   #   optional browser + its egress allowlist
+│   │       └── blue-zone-android.sh   #   optional Android build + emulator relay
 │   ├── blue-zone.config.sh         # Which folders are blue zone + exclusion rules
 │   ├── blue-zone-insecure-strings.txt  # Content denylist (strings that must never leak)
+│   ├── ai-adb-relay/               # Optional Android: one-port relay to the Mac's emulator
+│   ├── ai-android/bz-android       # Optional Android: in-session build/run helper
 │   ├── ai-playwright/              # Optional browser, OUTSIDE the sandbox image
 │   │   └── Dockerfile              #   Playwright MCP + Chromium, non-root
 │   ├── ai-proxy/                   # Egress allowlist proxy (interactive sessions)

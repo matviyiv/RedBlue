@@ -1,0 +1,119 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Claude sandbox image WITH the Android build toolchain (JDK 17, Android SDK,
+# NDK, CMake, adb). Used by the interactive session only, and only when
+# BLUE_ZONE_ANDROID_ENABLED=1 — see docs/android.md.
+#
+# Same user, same /workspace layout and same entrypoint as Dockerfile.ai-sandbox,
+# so everything else in the sandbox (mounts, proxy, sync-back) works unchanged.
+#
+# Differences from the base image, and why:
+#
+#   • Debian (glibc), not Alpine (musl). aapt2, the NDK toolchain and CMake from
+#     the Android SDK are glibc binaries; on Alpine they fail to start.
+#   • linux/amd64 ONLY. Google ships the SDK build tools, NDK and CMake for
+#     linux-x86_64 only — there is no linux-arm64 build. On Apple Silicon this
+#     image runs under Docker Desktop's Rosetta emulation (Settings → General →
+#     "Use Rosetta for x86_64/amd64 emulation on Apple Silicon"). The
+#     docker-compose.android.yml overlay pins the platform, so you do not have
+#     to set CLAUDE_PLATFORM yourself.
+#   • No emulator. Docker Desktop on macOS exposes no KVM, so an emulator cannot
+#     run in a container there. The emulator runs natively on the Mac and the
+#     session reaches its adb port through the adb-relay container.
+#
+# BASE_IMAGE is overridable so the build can use a registry mirror when Docker
+# Hub rate-limits you, e.g.
+#     --build-arg BASE_IMAGE=mirror.gcr.io/library/node:26-bookworm-slim
+# ─────────────────────────────────────────────────────────────────────────────
+ARG BASE_IMAGE=node:26-bookworm-slim
+FROM ${BASE_IMAGE}
+
+# Pinned to what React Native 0.76's template expects (compileSdk/targetSdk 35,
+# build-tools 35.0.0, NDK 26.1.10909125). Override with --build-arg to match a
+# project that pins something else in android/build.gradle — a version the
+# image lacks would otherwise be downloaded by Gradle on every fresh volume.
+ARG ANDROID_CMDLINE_TOOLS_BUILD=16111833
+ARG ANDROID_PLATFORM=android-35
+ARG ANDROID_BUILD_TOOLS=35.0.0
+ARG ANDROID_NDK=26.1.10909125
+ARG ANDROID_CMAKE=3.22.1
+
+ENV ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+
+# OS packages. ca-certificates-java (pulled in by the JDK) keeps Java's trust
+# store in step with the system one.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash git jq curl unzip ca-certificates procps \
+      openjdk-17-jdk-headless \
+ && rm -rf /var/lib/apt/lists/*
+
+# Android SDK. Licences are accepted at build time so Gradle never stops to ask.
+RUN mkdir -p "$ANDROID_HOME/cmdline-tools" \
+ && curl -fsSL -o /tmp/cmdline-tools.zip \
+      "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS_BUILD}_latest.zip" \
+ && unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools" \
+ && mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest" \
+ && rm /tmp/cmdline-tools.zip \
+ && yes | sdkmanager --licenses >/dev/null \
+ && sdkmanager --install \
+      "platform-tools" \
+      "platforms;${ANDROID_PLATFORM}" \
+      "build-tools;${ANDROID_BUILD_TOOLS}" \
+      "ndk;${ANDROID_NDK}" \
+      "cmake;${ANDROID_CMAKE}" \
+      >/dev/null \
+ && rm -rf "$ANDROID_HOME/.temp" /root/.android
+
+# Claude Code CLI (unpinned, like the base image; start-cli.sh --update rebuilds).
+RUN npm install -g @anthropic-ai/claude-code
+
+# Same non-root user as the base image.
+RUN groupadd --system claude \
+ && useradd --system --gid claude --create-home --home-dir /home/claude --shell /bin/bash claude \
+ && mkdir -p /home/claude/.claude \
+ && chown -R claude:claude /home/claude
+
+# A throwaway debug keystore, generated here rather than taken from the repo:
+# the blue zone strips every *.keystore (red zone), including the template's
+# android/app/debug.keystore, so a debug build has nothing to sign with
+# otherwise. `bz-android prepare` copies it into the project when missing;
+# sync-back.sh refuses to bring it back (it matches the red-zone rules). These
+# are the standard Android debug credentials, which are public by design.
+RUN mkdir -p /opt/android-debug \
+ && keytool -genkeypair -v -noprompt \
+      -keystore /opt/android-debug/debug.keystore \
+      -storepass android -keypass android -alias androiddebugkey \
+      -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1 \
+ && chmod 644 /opt/android-debug/debug.keystore
+
+# Session helper: connect to the emulator, prepare, build, run, screenshot.
+COPY ai-android/bz-android /usr/local/bin/bz-android
+RUN chmod 755 /usr/local/bin/bz-android
+
+# Writable SDK for the claude user: Gradle may install a platform/NDK version
+# the image does not carry (through the egress proxy, if dl.google.com is on the
+# allowlist). Without this it fails on a root-owned SDK instead.
+RUN chown -R claude:claude "$ANDROID_HOME"
+
+# Gradle's cache lives OUTSIDE the claude-home volume, on its own named volume
+# (gradle-cache, see the generated docker-compose.android.yml). Pre-created and
+# claude-owned so a fresh volume seeds writable — same trick as node_modules.
+ENV GRADLE_USER_HOME=/opt/gradle-home
+RUN mkdir -p /opt/gradle-home && chown claude:claude /opt/gradle-home
+
+WORKDIR /workspace
+RUN chown claude:claude /workspace \
+ && mkdir -p /workspace/node_modules && chown claude:claude /workspace/node_modules
+
+# Same heap as the base image for yarn/npm. Gradle's own heap is set per run by
+# the overlay (GRADLE_OPTS / ORG_GRADLE_PROJECT_*), not here.
+ENV NODE_OPTIONS="--max-old-space-size=3072"
+
+USER claude
+
+ENTRYPOINT ["claude"]
+CMD ["--help"]

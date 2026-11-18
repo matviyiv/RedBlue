@@ -25,6 +25,9 @@ source "$SCRIPT_DIR/../blue-zone.config.sh"
 # Optional Playwright browser (off unless BLUE_ZONE_BROWSER_ENABLED=1).
 # shellcheck source=lib/blue-zone-browser.sh
 source "$SCRIPT_DIR/lib/blue-zone-browser.sh"
+# Optional Android build + emulator (off unless BLUE_ZONE_ANDROID_ENABLED=1).
+# shellcheck source=lib/blue-zone-android.sh
+source "$SCRIPT_DIR/lib/blue-zone-android.sh"
 
 # Base file only, set early so every docker compose call below (including
 # --clear and the auth check) can find it — Docker Compose does not
@@ -49,6 +52,14 @@ if [ "${1:-}" = "--update" ]; then
   # (claude-code:latest), so rebuilding one updates both.
   docker rmi -f claude-code:latest >/dev/null 2>&1 || true
   docker compose -f docker-compose.ai-sandbox.yml build --no-cache --pull claude-code
+  # The Android image is separate (claude-code-android:latest) and carries its
+  # own copy of the CLI, so it needs the same forced rebuild.
+  if blue_zone_android_enabled; then
+    blue_zone_android_write "$(pwd)"
+    docker rmi -f claude-code-android:latest >/dev/null 2>&1 || true
+    docker compose -f docker-compose.ai-sandbox.yml -f "$BLUE_ZONE_ANDROID_COMPOSE_FILE" \
+      build --no-cache --pull claude-cli
+  fi
   echo -e "${GREEN}Updated. The next session will use the new image.${RESET}"
   exit 0
 fi
@@ -92,6 +103,10 @@ export COMPOSE_FILE="docker-compose.ai-sandbox.yml:$BLUE_ZONE_COMPOSE_FILE"
 # from the environment after validation ran.
 CLAUDE_EXTRA_ARGS=()
 COMPOSE_RUN_ARGS=()
+# Notes appended to the session's system prompt. Collected here and passed as a
+# single --append-system-prompt at the end, so the browser's and Android's
+# notes cannot overwrite each other.
+PROMPT_NOTES=""
 if blue_zone_browser_enabled; then
   echo -e "\n${BOLD}Step 3: Checking browser egress policy...${RESET}"
   if ! blue_zone_browser_check; then
@@ -116,10 +131,33 @@ if blue_zone_browser_enabled; then
     # Tell the session the exact dev-server URL. CLAUDE.md teaches the workflow
     # but cannot know the port, and a session left to guess reaches for
     # http://localhost:<port>, which is the browser's own container.
-    CLAUDE_EXTRA_ARGS+=(--append-system-prompt "$(blue_zone_browser_prompt_note)")
+    PROMPT_NOTES="$PROMPT_NOTES$(blue_zone_browser_prompt_note)
+"
   fi
   echo -e "  ${GREEN}OK${RESET} egress policy accepted"
 fi
+
+# ── Optional Android build + emulator ────────────────────────────────────────
+# Off by default. Swaps claude-cli onto the Android image, adds the Gradle/SDK
+# hosts to the session allowlist for THIS run only, and starts adb-relay — the
+# single TCP path to the emulator's adb port on the host. Settings that do not
+# validate abort the run rather than start with a policy we did not check.
+if blue_zone_android_enabled; then
+  echo -e "\n${BOLD}Step 3b: Checking Android settings...${RESET}"
+  if ! blue_zone_android_check; then
+    echo -e "\n${RED}${BOLD}Android settings rejected — not starting.${RESET}"
+    echo    "Fix BLUE_ZONE_ANDROID_* in blue-zone.config.sh, or set"
+    echo    "BLUE_ZONE_ANDROID_ENABLED=0 to run without Android."
+    exit 1
+  fi
+  blue_zone_android_write "$(pwd)"
+  export COMPOSE_FILE="$COMPOSE_FILE:$BLUE_ZONE_ANDROID_COMPOSE_FILE"
+  PROMPT_NOTES="$PROMPT_NOTES$(blue_zone_android_prompt_note)
+"
+  echo -e "  ${GREEN}OK${RESET} Android settings accepted"
+fi
+
+[ -n "$PROMPT_NOTES" ] && CLAUDE_EXTRA_ARGS+=(--append-system-prompt "$PROMPT_NOTES")
 
 # ── Ensure the node_modules cache volume is writable by the non-root user ─────
 # A `node-modules` volume created before the image pre-created
@@ -129,6 +167,13 @@ fi
 docker compose run --rm --no-deps --user 0 --entrypoint sh claude-code -c \
   'd=/workspace/node_modules; [ "$(stat -c %U "$d" 2>/dev/null)" = claude ] || chown -R claude:claude "$d"' \
   >/dev/null 2>&1 || echo "  (note: could not pre-fix node_modules volume ownership)"
+
+# Same for the Gradle cache volume, which only exists with Android on.
+if blue_zone_android_enabled; then
+  docker compose run --rm --no-deps --user 0 --entrypoint sh claude-cli -c \
+    'd=/opt/gradle-home; [ "$(stat -c %U "$d" 2>/dev/null)" = claude ] || chown -R claude:claude "$d"' \
+    >/dev/null 2>&1 || echo "  (note: could not pre-fix gradle-cache volume ownership)"
+fi
 
 # ── Show mount summary ────────────────────────────────────────────────────────
 echo -e "\n${BOLD}Mounting into container (writable — changes land in $BLUE_ZONE_ROOT):${RESET}"
@@ -146,6 +191,11 @@ echo ""
 
 if blue_zone_browser_enabled; then
   blue_zone_browser_summary
+  echo ""
+fi
+
+if blue_zone_android_enabled; then
+  blue_zone_android_summary
   echo ""
 fi
 
@@ -188,6 +238,9 @@ cleanup() {
   if blue_zone_browser_enabled; then
     docker compose rm -sf playwright-mcp browser-proxy >/dev/null 2>&1 || true
   fi
+  if blue_zone_android_enabled; then
+    docker compose rm -sf adb-relay >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
@@ -208,6 +261,12 @@ if blue_zone_browser_enabled; then
   echo -e "${BOLD}Starting browser stack (playwright-mcp + browser-proxy)...${RESET}"
   docker compose up -d --force-recreate browser-proxy
   docker compose up -d --force-recreate playwright-mcp
+fi
+
+# adb-relay: recreated so a changed BLUE_ZONE_ANDROID_ADB_PORT takes effect.
+if blue_zone_android_enabled; then
+  echo -e "${BOLD}Starting adb-relay (-> host.docker.internal:$BLUE_ZONE_ANDROID_ADB_PORT)...${RESET}"
+  docker compose up -d --force-recreate adb-relay
 fi
 
 docker compose run --rm \

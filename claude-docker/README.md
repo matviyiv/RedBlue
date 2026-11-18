@@ -211,13 +211,17 @@ your-project/
 ├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
 ├── ai-proxy/                      <- Egress allowlist proxy
 ├── ai-playwright/                 <- Optional browser (Playwright MCP), own container
+├── ai-adb-relay/                  <- Optional Android: one-port relay to the host emulator
+├── ai-android/bz-android          <- Optional Android: in-session helper (build/run/screenshot)
 ├── .claude-blue-zone/             <- Shared agents & skills (committed, mounted :ro)
 │   ├── agents/                    <-   -> /workspace/.claude/agents
 │   └── skills/                    <-   -> /workspace/.claude/skills
 ├── Dockerfile.ai-sandbox
+├── Dockerfile.ai-sandbox-android  <- Optional Android: JDK + SDK + NDK, linux/amd64
 ├── docker-compose.ai-sandbox.yml  <- Base compose (no folder mounts hardcoded)
 ├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
 ├── docker-compose.browser.yml     <- Generated browser services (git-ignored)
+├── docker-compose.android.yml     <- Generated Android services (git-ignored)
 └── .gitlab-ci.yml
 ```
 
@@ -265,6 +269,23 @@ BLUE_ZONE_BROWSER_ALLOW_HOST_GATEWAY=0
 LAN-pointing allowlist, and `start-cli.sh` re-checks it before starting
 anything. Headless/CI runs never get the browser. The design and its limits are
 documented in [`docs/playwright-mcp.md`](docs/playwright-mcp.md).
+
+## Android build & emulator — optional, off by default
+
+An interactive session can build the Android debug APK and run it on an
+emulator. On macOS the emulator can't run in Docker (no KVM), so it runs on
+your Mac and the session reaches only its adb port through a one-port relay:
+
+```bash
+./ai-scripts/android-emulator.sh create       # once: system image + "bluezone" AVD
+./ai-scripts/android-emulator.sh start        # boots it, airplane mode on
+BLUE_ZONE_ANDROID_ENABLED=1 ./ai-scripts/start-cli.sh
+```
+
+In the session Claude uses `bz-android build | run | screenshot | logs`. Gradle's
+hosts are added to the allowlist for that run only, and check 7b validates the
+settings. The emulator has your Mac's network and the session gets `adb shell`
+on it, so read [`docs/android.md`](docs/android.md) before you turn this on.
 
 ## Authentication
 

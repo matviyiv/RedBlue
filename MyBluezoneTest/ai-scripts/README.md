@@ -52,6 +52,36 @@ mounted folder — `sync-back.sh` never copies it back into the repo, and the
 read-only mount means Claude cannot alter it. Change the filename via
 `BLUE_ZONE_MANIFEST_FILE` in `blue-zone.config.sh`.
 
+### Keeping the manifest readable — `BLUE_ZONE_PRUNE_DIRS`
+
+An exclusion (`BLUE_ZONE_COMMON_EXCLUDES` / `blue_zone_excludes_for()`) keeps a
+directory out of the blue zone, but by default the manifest still *walks* the
+real source tree to report what it stripped — so a generated or vendored
+directory like `android/app/build/`, `ios/Pods/`, or `android/app/.cxx/` gets
+listed one bullet per file, sometimes thousands of them.
+
+**`BLUE_ZONE_PRUNE_DIRS`** in `blue-zone.config.sh` fixes this. Any directory
+*name* listed there is never walked by the manifest (same treatment
+`node_modules` and `.git` already got) and shows up as a single rolled-up line
+instead:
+
+```
+- `android/app/build/` — 812 file(s), not listed individually (generated/vendored — see `BLUE_ZONE_PRUNE_DIRS`)
+```
+
+The default already covers the common React Native/iOS/Android generated
+trees:
+
+```bash
+# blue-zone.config.sh
+BLUE_ZONE_PRUNE_DIRS=(node_modules .git build Pods .cxx .gradle DerivedData xcuserdata)
+```
+
+Add any other build-output or dependency-cache directory your project grows
+(e.g. `.next`, `dist`, `target`) to this list. It only changes how noisy the
+manifest is — it does **not** affect what gets copied into the blue zone; that
+is still controlled entirely by the exclusion rules above.
+
 ## Configuring blue-zone folders
 
 Which top-level folders are staged into the blue zone — and what gets stripped
@@ -181,13 +211,17 @@ your-project/
 ├── blue-zone-insecure-strings.txt <- Content denylist (forbidden strings)
 ├── ai-proxy/                      <- Egress allowlist proxy
 ├── ai-playwright/                 <- Optional browser (Playwright MCP), own container
+├── ai-adb-relay/                  <- Optional Android: one-port relay to the host emulator
+├── ai-android/bz-android          <- Optional Android: in-session helper (build/run/screenshot)
 ├── .claude-blue-zone/             <- Shared agents & skills (committed, mounted :ro)
 │   ├── agents/                    <-   -> /workspace/.claude/agents
 │   └── skills/                    <-   -> /workspace/.claude/skills
 ├── Dockerfile.ai-sandbox
+├── Dockerfile.ai-sandbox-android  <- Optional Android: JDK + SDK + NDK, linux/amd64
 ├── docker-compose.ai-sandbox.yml  <- Base compose (no folder mounts hardcoded)
 ├── docker-compose.blue-zone.yml   <- Generated per-folder mounts (git-ignored)
 ├── docker-compose.browser.yml     <- Generated browser services (git-ignored)
+├── docker-compose.android.yml     <- Generated Android services (git-ignored)
 └── .gitlab-ci.yml
 ```
 
@@ -236,6 +270,23 @@ LAN-pointing allowlist, and `start-cli.sh` re-checks it before starting
 anything. Headless/CI runs never get the browser. The design and its limits are
 documented in [`docs/playwright-mcp.md`](docs/playwright-mcp.md).
 
+## Android build & emulator — optional, off by default
+
+An interactive session can build the Android debug APK and run it on an
+emulator. On macOS the emulator can't run in Docker (no KVM), so it runs on
+your Mac and the session reaches only its adb port through a one-port relay:
+
+```bash
+./ai-scripts/android-emulator.sh create       # once: system image + "bluezone" AVD
+./ai-scripts/android-emulator.sh start        # boots it, airplane mode on
+BLUE_ZONE_ANDROID_ENABLED=1 ./ai-scripts/start-cli.sh
+```
+
+In the session Claude uses `bz-android build | run | screenshot | logs`. Gradle's
+hosts are added to the allowlist for that run only, and check 7b validates the
+settings. The emulator has your Mac's network and the session gets `adb shell`
+on it, so read [`docs/android.md`](docs/android.md) before you turn this on.
+
 ## Authentication
 
 A token is **optional**. Auth is resolved in this order:
@@ -263,6 +314,22 @@ To wipe it and start fresh:
 ```bash
 ./ai-scripts/start-cli.sh --clear    # removes all named volumes (claude-home + node-modules)
 ```
+
+## Updating the Claude Code CLI
+
+`Dockerfile.ai-sandbox` installs `@anthropic-ai/claude-code` with no version
+pin, so the image only has whatever was latest the last time it was built.
+Update it with:
+
+```bash
+./ai-scripts/start-cli.sh --update
+```
+
+This deletes the `claude-code:latest` image and rebuilds it with `--no-cache`,
+so the `npm install -g @anthropic-ai/claude-code` layer actually re-runs
+instead of reusing a stale cached layer. `claude-cli` and `claude-code` share
+the same image, so one rebuild updates both. Persisted state (`claude-home`,
+`node-modules` volumes) is untouched — only the image is replaced.
 
 ## Dependencies (node_modules cache)
 

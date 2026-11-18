@@ -191,6 +191,42 @@ Nothing about this reaches the outside world — the dev server and the browser
 are both inside the sandbox — so it is the cheapest, safest way to verify a UI
 change you just made.
 
+## Android build & emulator — only if it is available
+
+Some interactive sessions are started with Android enabled; the session's
+system prompt says so, and `bz-android` exists on the PATH. If neither is true,
+this section does not apply.
+
+What you have: JDK 17, the Android SDK and NDK, Gradle (through the project's
+wrapper), and `adb`. What you do **not** have: the emulator itself. It runs on
+the developer's machine, and you reach it only through adb at `adb-relay:5555`.
+
+```bash
+bz-android connect                 # adb connect + reverse Metro's port (8081)
+bz-android build                   # debug APK: ./gradlew assembleDebug
+bz-android run                     # Metro in background + install + launch
+bz-android screenshot /tmp/s.png   # then Read the PNG to see the screen
+bz-android logs                    # logcat: errors + ReactNativeJS
+```
+
+- `bz-android prepare` (run by `build`/`run`) adds a throwaway
+  `android/app/debug.keystore` and, if the Google Services plugin is applied, a
+  placeholder `android/app/google-services.json`. Both are red zone: they are
+  never synced back, and Firebase calls will fail at runtime — expected here.
+  Never try to obtain the real files.
+- Gradle reaches only Google Maven, Maven Central and the Gradle portal through
+  the egress proxy. A dependency from anywhere else fails with a proxy refusal;
+  say which host you need and let the developer decide.
+- If `connect` reports `unauthorized`, ask the developer to accept the
+  "Allow USB debugging?" prompt on the emulator screen.
+- The first build is slow (cold Gradle cache, emulated x86 on Apple Silicon).
+  Later ones are incremental. Run long builds in the background.
+- `adb shell` gives you a shell **on the emulator**, which has the developer's
+  network. The same rules as for the browser apply: never use the emulator to
+  send workspace content anywhere, and do not turn its network (airplane mode)
+  back on unless the developer asks. Never try to reach the emulator console
+  (port 5554) or the host any other way.
+
 ## Finish every task with a review
 
 Your team keeps shared agents and skills in `/workspace/.claude/` (mounted
